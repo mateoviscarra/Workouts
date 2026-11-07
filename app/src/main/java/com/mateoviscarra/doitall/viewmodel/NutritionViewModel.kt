@@ -131,13 +131,14 @@ class NutritionViewModel @JvmOverloads constructor(
             time = nowTime,
             mealSlot = mealSlot,
             name = staple.name,
-            calories = staple.calories,
-            proteinGrams = staple.proteinGrams,
-            carbsGrams = staple.carbsGrams,
-            fatGrams = staple.fatGrams,
+            calories = staple.totalCalories,
+            proteinGrams = staple.totalProtein,
+            carbsGrams = staple.totalCarbs,
+            fatGrams = staple.totalFat,
             portionMultiplier = 1.0f,
             source = EntrySource.STAPLE,
-            note = staple.servingDescription
+            note = staple.servingDescription,
+            ingredients = staple.ingredients
         )
         repository.addFoodLogEntry(entry)
     }
@@ -150,7 +151,8 @@ class NutritionViewModel @JvmOverloads constructor(
         fatGrams: Float,
         mealSlot: MealSlot,
         note: String = "",
-        source: EntrySource = EntrySource.MANUAL
+        source: EntrySource = EntrySource.MANUAL,
+        ingredients: List<com.mateoviscarra.doitall.data.MealIngredient> = emptyList()
     ) {
         val nowTime = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
         val entry = FoodLogEntry(
@@ -164,7 +166,8 @@ class NutritionViewModel @JvmOverloads constructor(
             fatGrams = fatGrams,
             portionMultiplier = 1.0f,
             source = source,
-            note = note
+            note = note,
+            ingredients = ingredients
         )
         repository.addFoodLogEntry(entry)
     }

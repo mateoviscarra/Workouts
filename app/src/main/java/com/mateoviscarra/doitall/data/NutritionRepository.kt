@@ -72,7 +72,22 @@ class NutritionRepository(
         val mealsJson = prefs.getString(KEY_SAVED_MEALS, null)
         if (!mealsJson.isNullOrBlank()) {
             try {
-                _savedMeals.value = parseSavedMeals(mealsJson)
+                val loaded = parseSavedMeals(mealsJson)
+                // If overnight oats exists but was saved before ingredient support, populate its ingredients
+                val migrated = loaded.map { m ->
+                    if (m.id == "staple_overnight_oats" && m.ingredients.isEmpty()) {
+                        m.copy(
+                            ingredients = listOf(
+                                MealIngredient(name = "Rolled Oats", amountDescription = "50g", calories = 190, proteinGrams = 6f, carbsGrams = 34f, fatGrams = 3f),
+                                MealIngredient(name = "Whey Protein", amountDescription = "1 scoop (30g)", calories = 120, proteinGrams = 24f, carbsGrams = 2f, fatGrams = 1.5f),
+                                MealIngredient(name = "Almond Milk", amountDescription = "200ml", calories = 30, proteinGrams = 1f, carbsGrams = 1f, fatGrams = 2.5f),
+                                MealIngredient(name = "Chia Seeds", amountDescription = "15g", calories = 70, proteinGrams = 3f, carbsGrams = 6f, fatGrams = 4.5f),
+                                MealIngredient(name = "Peanut Butter", amountDescription = "1 tbsp (15g)", calories = 90, proteinGrams = 4f, carbsGrams = 3f, fatGrams = 8f)
+                            )
+                        )
+                    } else m
+                }
+                _savedMeals.value = migrated
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading saved meals", e)
             }
@@ -82,13 +97,20 @@ class NutritionRepository(
                 SavedMeal(
                     id = "staple_overnight_oats",
                     name = "Overnight Oats",
-                    calories = 450,
-                    proteinGrams = 30f,
-                    carbsGrams = 60f,
-                    fatGrams = 10f,
-                    servingDescription = "1 standard jar",
+                    calories = 500,
+                    proteinGrams = 38f,
+                    carbsGrams = 46f,
+                    fatGrams = 19.5f,
+                    servingDescription = "1 jar (~350g)",
                     isPinnedStaple = true,
-                    defaultMealSlot = MealSlot.BREAKFAST
+                    defaultMealSlot = MealSlot.BREAKFAST,
+                    ingredients = listOf(
+                        MealIngredient(name = "Rolled Oats", amountDescription = "50g", calories = 190, proteinGrams = 6f, carbsGrams = 34f, fatGrams = 3f),
+                        MealIngredient(name = "Whey Protein", amountDescription = "1 scoop (30g)", calories = 120, proteinGrams = 24f, carbsGrams = 2f, fatGrams = 1.5f),
+                        MealIngredient(name = "Almond Milk", amountDescription = "200ml", calories = 30, proteinGrams = 1f, carbsGrams = 1f, fatGrams = 2.5f),
+                        MealIngredient(name = "Chia Seeds", amountDescription = "15g", calories = 70, proteinGrams = 3f, carbsGrams = 6f, fatGrams = 4.5f),
+                        MealIngredient(name = "Peanut Butter", amountDescription = "1 tbsp (15g)", calories = 90, proteinGrams = 4f, carbsGrams = 3f, fatGrams = 8f)
+                    )
                 ),
                 SavedMeal(
                     id = "staple_protein_alfajor",
@@ -99,7 +121,8 @@ class NutritionRepository(
                     fatGrams = 7f,
                     servingDescription = "1 unit",
                     isPinnedStaple = true,
-                    defaultMealSlot = MealSlot.SNACKS
+                    defaultMealSlot = MealSlot.SNACKS,
+                    ingredients = emptyList()
                 )
             )
             _savedMeals.value = initial
@@ -188,13 +211,27 @@ class NutritionRepository(
                 val obj = JSONObject().apply {
                     put("id", m.id)
                     put("name", m.name)
-                    put("calories", m.calories)
-                    put("proteinGrams", m.proteinGrams.toDouble())
-                    put("carbsGrams", m.carbsGrams.toDouble())
-                    put("fatGrams", m.fatGrams.toDouble())
+                    put("calories", m.totalCalories)
+                    put("proteinGrams", m.totalProtein.toDouble())
+                    put("carbsGrams", m.totalCarbs.toDouble())
+                    put("fatGrams", m.totalFat.toDouble())
                     put("servingDescription", m.servingDescription)
                     put("isPinnedStaple", m.isPinnedStaple)
                     put("defaultMealSlot", m.defaultMealSlot.name)
+
+                    val ingArr = JSONArray()
+                    m.ingredients.forEach { ing ->
+                        ingArr.put(JSONObject().apply {
+                            put("id", ing.id)
+                            put("name", ing.name)
+                            put("amountDescription", ing.amountDescription)
+                            put("calories", ing.calories)
+                            put("proteinGrams", ing.proteinGrams.toDouble())
+                            put("carbsGrams", ing.carbsGrams.toDouble())
+                            put("fatGrams", ing.fatGrams.toDouble())
+                        })
+                    }
+                    put("ingredients", ingArr)
                 }
                 arr.put(obj)
             }
@@ -209,6 +246,26 @@ class NutritionRepository(
             val obj = arr.getJSONObject(i)
             val slotStr = obj.optString("defaultMealSlot", MealSlot.BREAKFAST.name)
             val slot = try { MealSlot.valueOf(slotStr) } catch (_: Exception) { MealSlot.BREAKFAST }
+
+            val ingList = mutableListOf<MealIngredient>()
+            val ingArr = obj.optJSONArray("ingredients")
+            if (ingArr != null) {
+                for (j in 0 until ingArr.length()) {
+                    val iObj = ingArr.getJSONObject(j)
+                    ingList.add(
+                        MealIngredient(
+                            id = iObj.optString("id", UUID.randomUUID().toString()),
+                            name = iObj.getString("name"),
+                            amountDescription = iObj.optString("amountDescription", ""),
+                            calories = iObj.optInt("calories", 0),
+                            proteinGrams = iObj.optDouble("proteinGrams", 0.0).toFloat(),
+                            carbsGrams = iObj.optDouble("carbsGrams", 0.0).toFloat(),
+                            fatGrams = iObj.optDouble("fatGrams", 0.0).toFloat()
+                        )
+                    )
+                }
+            }
+
             list.add(
                 SavedMeal(
                     id = obj.optString("id", UUID.randomUUID().toString()),
@@ -219,7 +276,8 @@ class NutritionRepository(
                     fatGrams = obj.optDouble("fatGrams", 0.0).toFloat(),
                     servingDescription = obj.optString("servingDescription", ""),
                     isPinnedStaple = obj.optBoolean("isPinnedStaple", true),
-                    defaultMealSlot = slot
+                    defaultMealSlot = slot,
+                    ingredients = ingList
                 )
             )
         }
@@ -265,13 +323,27 @@ class NutritionRepository(
                     put("time", e.time)
                     put("mealSlot", e.mealSlot.name)
                     put("name", e.name)
-                    put("calories", e.calories)
-                    put("proteinGrams", e.proteinGrams.toDouble())
-                    put("carbsGrams", e.carbsGrams.toDouble())
-                    put("fatGrams", e.fatGrams.toDouble())
+                    put("calories", e.baseCalories)
+                    put("proteinGrams", e.baseProtein.toDouble())
+                    put("carbsGrams", e.baseCarbs.toDouble())
+                    put("fatGrams", e.baseFat.toDouble())
                     put("portionMultiplier", e.portionMultiplier.toDouble())
                     put("source", e.source.name)
                     put("note", e.note)
+
+                    val ingArr = JSONArray()
+                    e.ingredients.forEach { ing ->
+                        ingArr.put(JSONObject().apply {
+                            put("id", ing.id)
+                            put("name", ing.name)
+                            put("amountDescription", ing.amountDescription)
+                            put("calories", ing.calories)
+                            put("proteinGrams", ing.proteinGrams.toDouble())
+                            put("carbsGrams", ing.carbsGrams.toDouble())
+                            put("fatGrams", ing.fatGrams.toDouble())
+                        })
+                    }
+                    put("ingredients", ingArr)
                 }
                 arr.put(obj)
             }
@@ -288,6 +360,26 @@ class NutritionRepository(
             val slot = try { MealSlot.valueOf(slotStr) } catch (_: Exception) { MealSlot.BREAKFAST }
             val sourceStr = obj.optString("source", EntrySource.MANUAL.name)
             val source = try { EntrySource.valueOf(sourceStr) } catch (_: Exception) { EntrySource.MANUAL }
+
+            val ingList = mutableListOf<MealIngredient>()
+            val ingArr = obj.optJSONArray("ingredients")
+            if (ingArr != null) {
+                for (j in 0 until ingArr.length()) {
+                    val iObj = ingArr.getJSONObject(j)
+                    ingList.add(
+                        MealIngredient(
+                            id = iObj.optString("id", UUID.randomUUID().toString()),
+                            name = iObj.getString("name"),
+                            amountDescription = iObj.optString("amountDescription", ""),
+                            calories = iObj.optInt("calories", 0),
+                            proteinGrams = iObj.optDouble("proteinGrams", 0.0).toFloat(),
+                            carbsGrams = iObj.optDouble("carbsGrams", 0.0).toFloat(),
+                            fatGrams = iObj.optDouble("fatGrams", 0.0).toFloat()
+                        )
+                    )
+                }
+            }
+
             list.add(
                 FoodLogEntry(
                     id = obj.optString("id", UUID.randomUUID().toString()),
@@ -301,7 +393,8 @@ class NutritionRepository(
                     fatGrams = obj.optDouble("fatGrams", 0.0).toFloat(),
                     portionMultiplier = obj.optDouble("portionMultiplier", 1.0).toFloat(),
                     source = source,
-                    note = obj.optString("note", "")
+                    note = obj.optString("note", ""),
+                    ingredients = ingList
                 )
             )
         }
@@ -343,13 +436,27 @@ class NutritionRepository(
             mealsArr.put(JSONObject().apply {
                 put("id", m.id)
                 put("name", m.name)
-                put("calories", m.calories)
-                put("proteinGrams", m.proteinGrams.toDouble())
-                put("carbsGrams", m.carbsGrams.toDouble())
-                put("fatGrams", m.fatGrams.toDouble())
+                put("calories", m.totalCalories)
+                put("proteinGrams", m.totalProtein.toDouble())
+                put("carbsGrams", m.totalCarbs.toDouble())
+                put("fatGrams", m.totalFat.toDouble())
                 put("servingDescription", m.servingDescription)
                 put("isPinnedStaple", m.isPinnedStaple)
                 put("defaultMealSlot", m.defaultMealSlot.name)
+
+                val ingArr = JSONArray()
+                m.ingredients.forEach { ing ->
+                    ingArr.put(JSONObject().apply {
+                        put("id", ing.id)
+                        put("name", ing.name)
+                        put("amountDescription", ing.amountDescription)
+                        put("calories", ing.calories)
+                        put("proteinGrams", ing.proteinGrams.toDouble())
+                        put("carbsGrams", ing.carbsGrams.toDouble())
+                        put("fatGrams", ing.fatGrams.toDouble())
+                    })
+                }
+                put("ingredients", ingArr)
             })
         }
         root.put("savedMeals", mealsArr)
@@ -363,13 +470,27 @@ class NutritionRepository(
                 put("time", e.time)
                 put("mealSlot", e.mealSlot.name)
                 put("name", e.name)
-                put("calories", e.calories)
-                put("proteinGrams", e.proteinGrams.toDouble())
-                put("carbsGrams", e.carbsGrams.toDouble())
-                put("fatGrams", e.fatGrams.toDouble())
+                put("calories", e.baseCalories)
+                put("proteinGrams", e.baseProtein.toDouble())
+                put("carbsGrams", e.baseCarbs.toDouble())
+                put("fatGrams", e.baseFat.toDouble())
                 put("portionMultiplier", e.portionMultiplier.toDouble())
                 put("source", e.source.name)
                 put("note", e.note)
+
+                val ingArr = JSONArray()
+                e.ingredients.forEach { ing ->
+                    ingArr.put(JSONObject().apply {
+                        put("id", ing.id)
+                        put("name", ing.name)
+                        put("amountDescription", ing.amountDescription)
+                        put("calories", ing.calories)
+                        put("proteinGrams", ing.proteinGrams.toDouble())
+                        put("carbsGrams", ing.carbsGrams.toDouble())
+                        put("fatGrams", ing.fatGrams.toDouble())
+                    })
+                }
+                put("ingredients", ingArr)
             })
         }
         root.put("foodLogs", logsArr)

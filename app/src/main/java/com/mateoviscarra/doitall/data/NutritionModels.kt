@@ -18,6 +18,16 @@ enum class EntrySource {
     MANUAL
 }
 
+data class MealIngredient(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val amountDescription: String = "",
+    val calories: Int = 0,
+    val proteinGrams: Float = 0f,
+    val carbsGrams: Float = 0f,
+    val fatGrams: Float = 0f
+)
+
 data class SavedMeal(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
@@ -27,8 +37,21 @@ data class SavedMeal(
     val fatGrams: Float = 0f,
     val servingDescription: String = "",
     val isPinnedStaple: Boolean = true,
-    val defaultMealSlot: MealSlot = MealSlot.BREAKFAST
-)
+    val defaultMealSlot: MealSlot = MealSlot.BREAKFAST,
+    val ingredients: List<MealIngredient> = emptyList()
+) {
+    val totalCalories: Int
+        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.calories } else calories
+
+    val totalProtein: Float
+        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else proteinGrams
+
+    val totalCarbs: Float
+        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else carbsGrams
+
+    val totalFat: Float
+        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else fatGrams
+}
 
 data class FoodLogEntry(
     val id: String = UUID.randomUUID().toString(),
@@ -42,12 +65,25 @@ data class FoodLogEntry(
     val fatGrams: Float,
     val portionMultiplier: Float = 1.0f,
     val source: EntrySource = EntrySource.MANUAL,
-    val note: String = ""
+    val note: String = "",
+    val ingredients: List<MealIngredient> = emptyList()
 ) {
-    val totalCalories: Int get() = (calories * portionMultiplier).toInt()
-    val totalProtein: Float get() = proteinGrams * portionMultiplier
-    val totalCarbs: Float get() = carbsGrams * portionMultiplier
-    val totalFat: Float get() = fatGrams * portionMultiplier
+    val baseCalories: Int
+        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.calories } else calories
+
+    val baseProtein: Float
+        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else proteinGrams
+
+    val baseCarbs: Float
+        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else carbsGrams
+
+    val baseFat: Float
+        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else fatGrams
+
+    val totalCalories: Int get() = (baseCalories * portionMultiplier).toInt()
+    val totalProtein: Float get() = baseProtein * portionMultiplier
+    val totalCarbs: Float get() = baseCarbs * portionMultiplier
+    val totalFat: Float get() = baseFat * portionMultiplier
 }
 
 data class NutritionGoals(

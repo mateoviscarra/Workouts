@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -113,6 +115,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mateoviscarra.doitall.data.DayNutritionTotals
 import com.mateoviscarra.doitall.data.EntrySource
 import com.mateoviscarra.doitall.data.FoodLogEntry
+import com.mateoviscarra.doitall.data.MealIngredient
 import com.mateoviscarra.doitall.data.MealSlot
 import com.mateoviscarra.doitall.data.NutritionGoals
 import com.mateoviscarra.doitall.data.SavedMeal
@@ -382,7 +385,7 @@ fun NutritionScreen(
                 showQuickAddDialog = false
                 entryToEdit = null
             },
-            onSave = { name, cals, prot, carbs, fat, slot, note, saveAsStaple ->
+            onSave = { name, cals, prot, carbs, fat, slot, note, saveAsStaple, ingredients ->
                 if (isEditing && entryToEdit != null) {
                     viewModel.updateEntry(
                         entryToEdit!!.copy(
@@ -392,7 +395,8 @@ fun NutritionScreen(
                             carbsGrams = carbs,
                             fatGrams = fat,
                             mealSlot = slot,
-                            note = note
+                            note = note,
+                            ingredients = ingredients
                         )
                     )
                 } else {
@@ -403,7 +407,8 @@ fun NutritionScreen(
                         carbsGrams = carbs,
                         fatGrams = fat,
                         mealSlot = slot,
-                        note = note
+                        note = note,
+                        ingredients = ingredients
                     )
                 }
 
@@ -417,7 +422,8 @@ fun NutritionScreen(
                             fatGrams = fat,
                             servingDescription = note,
                             isPinnedStaple = true,
-                            defaultMealSlot = slot
+                            defaultMealSlot = slot,
+                            ingredients = ingredients
                         )
                     )
                 }
@@ -602,6 +608,17 @@ fun NutritionScreen(
             result = result,
             onDismiss = { scannedResult = null },
             onConfirm = { name, cals, prot, carbs, fat, slot, note, portionMult, saveAsStaple ->
+                val detectedIngredients = result.items.map { item ->
+                    MealIngredient(
+                        name = item.name,
+                        amountDescription = item.portion,
+                        calories = item.calories,
+                        proteinGrams = item.proteinGrams,
+                        carbsGrams = item.carbsGrams,
+                        fatGrams = item.fatGrams
+                    )
+                }
+
                 viewModel.addManualEntry(
                     name = name,
                     calories = cals,
@@ -610,7 +627,8 @@ fun NutritionScreen(
                     fatGrams = fat,
                     mealSlot = slot,
                     note = note,
-                    source = EntrySource.AI_SCAN
+                    source = EntrySource.AI_SCAN,
+                    ingredients = detectedIngredients
                 )
 
                 if (saveAsStaple) {
@@ -623,7 +641,8 @@ fun NutritionScreen(
                             fatGrams = fat / portionMult,
                             servingDescription = note,
                             isPinnedStaple = true,
-                            defaultMealSlot = slot
+                            defaultMealSlot = slot,
+                            ingredients = detectedIngredients
                         )
                     )
                 }
@@ -1053,6 +1072,8 @@ private fun StapleManagementCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showIngredients by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -1085,7 +1106,7 @@ private fun StapleManagementCard(
             }
 
             Text(
-                text = "${staple.calories} kcal • ${staple.proteinGrams.toInt()}g P • ${staple.carbsGrams.toInt()}g C • ${staple.fatGrams.toInt()}g F",
+                text = "${staple.totalCalories} kcal • ${staple.totalProtein.toInt()}g P • ${staple.totalCarbs.toInt()}g C • ${staple.totalFat.toInt()}g F",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold
@@ -1097,6 +1118,74 @@ private fun StapleManagementCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            // Expandable Ingredients Breakdown
+            if (staple.ingredients.isNotEmpty()) {
+                Surface(
+                    onClick = { showIngredients = !showIngredients },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Restaurant,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "${staple.ingredients.size} Ingredients",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Icon(
+                            imageVector = if (showIngredients) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (showIngredients) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        staple.ingredients.forEach { ing ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "• ${ing.name}${if (ing.amountDescription.isNotBlank()) " (${ing.amountDescription})" else ""}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "${ing.calories} kcal | ${ing.proteinGrams.toInt()}g P",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             Row(
@@ -2119,6 +2208,20 @@ private fun FoodEntryRow(
                         modifier = Modifier.size(14.dp)
                     )
                 }
+                if (entry.ingredients.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            text = "${entry.ingredients.size} ingr",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
             }
 
             Text(
@@ -2152,6 +2255,257 @@ private fun FoodEntryRow(
 }
 
 // -------------------------------------------------------------------------
+// INGREDIENTS EDITOR SECTION (SHARED BY QUICK ADD & STAPLE EDITOR)
+// -------------------------------------------------------------------------
+@Composable
+private fun IngredientsEditorSection(
+    ingredients: List<MealIngredient>,
+    onAddIngredient: () -> Unit,
+    onEditIngredient: (index: Int, ingredient: MealIngredient) -> Unit,
+    onDeleteIngredient: (index: Int) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Restaurant,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Recipe Ingredients (${ingredients.size})",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        OutlinedButton(
+            onClick = onAddIngredient,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Add", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+
+    if (ingredients.isNotEmpty()) {
+        val totalCals = ingredients.sumOf { it.calories }
+        val totalProt = ingredients.sumOf { it.proteinGrams.toDouble() }.toInt()
+        val totalCarbs = ingredients.sumOf { it.carbsGrams.toDouble() }.toInt()
+        val totalFat = ingredients.sumOf { it.fatGrams.toDouble() }.toInt()
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "Calculated Recipe Totals",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "$totalCals kcal • ${totalProt}g P • ${totalCarbs}g C • ${totalFat}g F",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ingredients.forEachIndexed { index, ing ->
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = ing.name + if (ing.amountDescription.isNotBlank()) " (${ing.amountDescription})" else "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            val detail = buildString {
+                                append("${ing.calories} kcal")
+                                if (ing.proteinGrams > 0f) append(" • ${ing.proteinGrams.toInt()}g P")
+                                if (ing.carbsGrams > 0f) append(" • ${ing.carbsGrams.toInt()}g C")
+                                if (ing.fatGrams > 0f) append(" • ${ing.fatGrams.toInt()}g F")
+                            }
+                            Text(
+                                text = detail,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            IconButton(
+                                onClick = { onEditIngredient(index, ing) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Edit ingredient",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = { onDeleteIngredient(index) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Remove ingredient",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// INGREDIENT EDITOR DIALOG
+// -------------------------------------------------------------------------
+@Composable
+private fun IngredientEditorDialog(
+    initialIngredient: MealIngredient? = null,
+    onDismiss: () -> Unit,
+    onSave: (MealIngredient) -> Unit
+) {
+    var name by remember { mutableStateOf(initialIngredient?.name ?: "") }
+    var amount by remember { mutableStateOf(initialIngredient?.amountDescription ?: "") }
+    var calories by remember { mutableStateOf(initialIngredient?.calories?.toString() ?: "") }
+    var protein by remember { mutableStateOf(initialIngredient?.proteinGrams?.let { if (it > 0f) it.toInt().toString() else "" } ?: "") }
+    var carbs by remember { mutableStateOf(initialIngredient?.carbsGrams?.let { if (it > 0f) it.toInt().toString() else "" } ?: "") }
+    var fat by remember { mutableStateOf(initialIngredient?.fatGrams?.let { if (it > 0f) it.toInt().toString() else "" } ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initialIngredient == null) "Add Ingredient" else "Edit Ingredient") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Ingredient Name") },
+                    placeholder = { Text("e.g. Rolled Oats, Whey Protein") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { amount = it },
+                    label = { Text("Amount / Quantity") },
+                    placeholder = { Text("e.g. 50g, 1 scoop (30g), 200ml") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = calories,
+                        onValueChange = { calories = it },
+                        label = { Text("Calories") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = protein,
+                        onValueChange = { protein = it },
+                        label = { Text("Protein (g)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = carbs,
+                        onValueChange = { carbs = it },
+                        label = { Text("Carbs (g)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = fat,
+                        onValueChange = { fat = it },
+                        label = { Text("Fat (g)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        val ingredient = (initialIngredient ?: MealIngredient(name = "", calories = 0)).copy(
+                            name = name.trim(),
+                            amountDescription = amount.trim(),
+                            calories = calories.toIntOrNull() ?: 0,
+                            proteinGrams = protein.toFloatOrNull() ?: 0f,
+                            carbsGrams = carbs.toFloatOrNull() ?: 0f,
+                            fatGrams = fat.toFloatOrNull() ?: 0f
+                        )
+                        onSave(ingredient)
+                    }
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+// -------------------------------------------------------------------------
 // QUICK ADD / EDIT FOOD DIALOG
 // -------------------------------------------------------------------------
 @OptIn(ExperimentalLayoutApi::class)
@@ -2160,7 +2514,7 @@ private fun QuickAddFoodDialog(
     initialEntry: FoodLogEntry?,
     initialMealSlot: MealSlot,
     onDismiss: () -> Unit,
-    onSave: (name: String, calories: Int, prot: Float, carbs: Float, fat: Float, slot: MealSlot, note: String, saveAsStaple: Boolean) -> Unit
+    onSave: (name: String, calories: Int, prot: Float, carbs: Float, fat: Float, slot: MealSlot, note: String, saveAsStaple: Boolean, ingredients: List<MealIngredient>) -> Unit
 ) {
     var name by remember { mutableStateOf(initialEntry?.name ?: "") }
     var calories by remember { mutableStateOf(initialEntry?.calories?.toString() ?: "") }
@@ -2170,6 +2524,17 @@ private fun QuickAddFoodDialog(
     var selectedSlot by remember { mutableStateOf(initialEntry?.mealSlot ?: initialMealSlot) }
     var note by remember { mutableStateOf(initialEntry?.note ?: "") }
     var saveAsStaple by remember { mutableStateOf(false) }
+
+    var ingredients by remember { mutableStateOf(initialEntry?.ingredients ?: emptyList()) }
+    var showIngredientDialog by remember { mutableStateOf(false) }
+    var editingIngredientIndex by remember { mutableStateOf<Int?>(null) }
+    var ingredientToEdit by remember { mutableStateOf<MealIngredient?>(null) }
+
+    val hasIngredients = ingredients.isNotEmpty()
+    val calcCals = if (hasIngredients) ingredients.sumOf { it.calories } else (calories.toIntOrNull() ?: 0)
+    val calcProt = if (hasIngredients) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else (protein.toFloatOrNull() ?: 0f)
+    val calcCarbs = if (hasIngredients) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else (carbs.toFloatOrNull() ?: 0f)
+    val calcFat = if (hasIngredients) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else (fat.toFloatOrNull() ?: 0f)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2204,48 +2569,69 @@ private fun QuickAddFoodDialog(
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = calories,
-                        onValueChange = { calories = it },
-                        label = { Text("Calories") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = protein,
-                        onValueChange = { protein = it },
-                        label = { Text("Protein (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                }
+                // Ingredients Section
+                IngredientsEditorSection(
+                    ingredients = ingredients,
+                    onAddIngredient = {
+                        editingIngredientIndex = null
+                        ingredientToEdit = null
+                        showIngredientDialog = true
+                    },
+                    onEditIngredient = { idx, ing ->
+                        editingIngredientIndex = idx
+                        ingredientToEdit = ing
+                        showIngredientDialog = true
+                    },
+                    onDeleteIngredient = { idx ->
+                        ingredients = ingredients.toMutableList().also { it.removeAt(idx) }
+                    }
+                )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = carbs,
-                        onValueChange = { carbs = it },
-                        label = { Text("Carbs (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = fat,
-                        onValueChange = { fat = it },
-                        label = { Text("Fat (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
+                // Manual macro inputs only if no ingredients are specified
+                if (!hasIngredients) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = calories,
+                            onValueChange = { calories = it },
+                            label = { Text("Calories") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = protein,
+                            onValueChange = { protein = it },
+                            label = { Text("Protein (g)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = carbs,
+                            onValueChange = { carbs = it },
+                            label = { Text("Carbs (g)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = fat,
+                            onValueChange = { fat = it },
+                            label = { Text("Fat (g)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
                 }
 
                 OutlinedTextField(
@@ -2277,13 +2663,14 @@ private fun QuickAddFoodDialog(
                     if (name.isNotBlank()) {
                         onSave(
                             name.trim(),
-                            calories.toIntOrNull() ?: 0,
-                            protein.toFloatOrNull() ?: 0f,
-                            carbs.toFloatOrNull() ?: 0f,
-                            fat.toFloatOrNull() ?: 0f,
+                            calcCals,
+                            calcProt,
+                            calcCarbs,
+                            calcFat,
                             selectedSlot,
                             note.trim(),
-                            saveAsStaple
+                            saveAsStaple,
+                            ingredients
                         )
                     }
                 }
@@ -2297,6 +2684,24 @@ private fun QuickAddFoodDialog(
             }
         }
     )
+
+    if (showIngredientDialog) {
+        IngredientEditorDialog(
+            initialIngredient = ingredientToEdit,
+            onDismiss = { showIngredientDialog = false },
+            onSave = { saved ->
+                val list = ingredients.toMutableList()
+                val idx = editingIngredientIndex
+                if (idx != null && idx in list.indices) {
+                    list[idx] = saved
+                } else {
+                    list.add(saved)
+                }
+                ingredients = list
+                showIngredientDialog = false
+            }
+        )
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -2318,6 +2723,17 @@ private fun StapleEditorDialog(
     var selectedSlot by remember { mutableStateOf(initialStaple?.defaultMealSlot ?: MealSlot.BREAKFAST) }
     var isPinned by remember { mutableStateOf(initialStaple?.isPinnedStaple ?: true) }
 
+    var ingredients by remember { mutableStateOf(initialStaple?.ingredients ?: emptyList()) }
+    var showIngredientDialog by remember { mutableStateOf(false) }
+    var editingIngredientIndex by remember { mutableStateOf<Int?>(null) }
+    var ingredientToEdit by remember { mutableStateOf<MealIngredient?>(null) }
+
+    val hasIngredients = ingredients.isNotEmpty()
+    val calcCals = if (hasIngredients) ingredients.sumOf { it.calories } else (calories.toIntOrNull() ?: 0)
+    val calcProt = if (hasIngredients) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else (protein.toFloatOrNull() ?: 0f)
+    val calcCarbs = if (hasIngredients) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else (carbs.toFloatOrNull() ?: 0f)
+    val calcFat = if (hasIngredients) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else (fat.toFloatOrNull() ?: 0f)
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initialStaple == null) "New Staple Meal" else "Edit Staple") },
@@ -2332,53 +2748,10 @@ private fun StapleEditorDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Staple Name") },
+                    placeholder = { Text("e.g. Overnight Oats, Protein Alfajor") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = calories,
-                        onValueChange = { calories = it },
-                        label = { Text("Calories") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = protein,
-                        onValueChange = { protein = it },
-                        label = { Text("Protein (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = carbs,
-                        onValueChange = { carbs = it },
-                        label = { Text("Carbs (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = fat,
-                        onValueChange = { fat = it },
-                        label = { Text("Fat (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                }
 
                 OutlinedTextField(
                     value = servingDesc,
@@ -2387,6 +2760,71 @@ private fun StapleEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+
+                // Ingredients Section
+                IngredientsEditorSection(
+                    ingredients = ingredients,
+                    onAddIngredient = {
+                        editingIngredientIndex = null
+                        ingredientToEdit = null
+                        showIngredientDialog = true
+                    },
+                    onEditIngredient = { idx, ing ->
+                        editingIngredientIndex = idx
+                        ingredientToEdit = ing
+                        showIngredientDialog = true
+                    },
+                    onDeleteIngredient = { idx ->
+                        ingredients = ingredients.toMutableList().also { it.removeAt(idx) }
+                    }
+                )
+
+                // Manual macro inputs only if no ingredients are specified
+                if (!hasIngredients) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = calories,
+                            onValueChange = { calories = it },
+                            label = { Text("Calories") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = protein,
+                            onValueChange = { protein = it },
+                            label = { Text("Protein (g)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = carbs,
+                            onValueChange = { carbs = it },
+                            label = { Text("Carbs (g)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = fat,
+                            onValueChange = { fat = it },
+                            label = { Text("Fat (g)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                }
 
                 Text("Default Meal Slot", style = MaterialTheme.typography.labelMedium)
                 FlowRow(
@@ -2413,13 +2851,14 @@ private fun StapleEditorDialog(
                             calories = 0
                         )).copy(
                             name = name.trim(),
-                            calories = calories.toIntOrNull() ?: 0,
-                            proteinGrams = protein.toFloatOrNull() ?: 0f,
-                            carbsGrams = carbs.toFloatOrNull() ?: 0f,
-                            fatGrams = fat.toFloatOrNull() ?: 0f,
+                            calories = calcCals,
+                            proteinGrams = calcProt,
+                            carbsGrams = calcCarbs,
+                            fatGrams = calcFat,
                             servingDescription = servingDesc.trim(),
                             defaultMealSlot = selectedSlot,
-                            isPinnedStaple = isPinned
+                            isPinnedStaple = isPinned,
+                            ingredients = ingredients
                         )
                         onSave(meal)
                     }
@@ -2434,6 +2873,24 @@ private fun StapleEditorDialog(
             }
         }
     )
+
+    if (showIngredientDialog) {
+        IngredientEditorDialog(
+            initialIngredient = ingredientToEdit,
+            onDismiss = { showIngredientDialog = false },
+            onSave = { saved ->
+                val list = ingredients.toMutableList()
+                val idx = editingIngredientIndex
+                if (idx != null && idx in list.indices) {
+                    list[idx] = saved
+                } else {
+                    list.add(saved)
+                }
+                ingredients = list
+                showIngredientDialog = false
+            }
+        )
+    }
 }
 
 // -------------------------------------------------------------------------
