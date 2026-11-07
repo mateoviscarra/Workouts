@@ -125,23 +125,23 @@ class GeminiVisionClient(private val context: Context) {
 
         // Contents
         val promptText = buildString {
-            append("Analyze the provided image (food dish or nutrition facts label). Identify all foods and estimate calories, protein (g), carbs (g), and fat (g).")
-            append("\nIMPORTANT: Always guess and output a specific, meaningful name for the meal or dish in 'mealName' (e.g. 'Silpancho Cochabambino', 'Overnight Oats con Berries', 'Marraqueta con Huevo y Queso'), and an estimated portion size or serving description in 'servingDescription' (e.g. '1 plato (~400g)', '1 taza (~250g)', '2 unidades', '1 alfajor de 60g').")
+            append("Analyze the provided image (food dish or nutrition facts label). Estimate total calories, protein (g), carbs (g), and fat (g) for the entire meal as a single whole for quick logging.")
+            append("\nIMPORTANT RULES:")
+            append("\n1. Do NOT break down the meal into individual ingredients or sub-items. Estimate ONLY the overall total calories and macronutrients for the entire meal combined.")
+            append("\n2. Keep 'mealName' short, simple, and clean (1 to 3 words maximum, e.g. 'Ceviche', 'Silpancho', 'Oatmeal', 'Steak & Rice', 'Protein Bar'). Do NOT create long compound or overly descriptive names (e.g. use 'Ceviche' instead of 'Ceviche Boliviano de Trucha con Camote').")
+            append("\n3. If user context notes extra sides or ingredients (e.g. 'camote', 'extra cheese'), factor their calories and macros into the overall totals, and mention them in 'servingDescription' (e.g. '1 plato con camote') or 'notes', but keep 'mealName' concise.")
             if (userNote.isNotBlank()) {
                 append("\nUser context / notes: ").append(userNote)
             }
             append("\nReturn strictly JSON with this schema:")
             append("""
                 {
-                  "mealName": "Specific name of dish or food item",
+                  "mealName": "Concise name (1-3 words max, e.g. Ceviche, Silpancho, Oatmeal)",
                   "servingDescription": "Estimated portion description (e.g. 1 plate, 250g, 1 unit)",
                   "calories": 0,
                   "proteinGrams": 0.0,
                   "carbsGrams": 0.0,
                   "fatGrams": 0.0,
-                  "items": [
-                    { "name": "Item", "portion": "description", "calories": 0, "proteinGrams": 0.0, "carbsGrams": 0.0, "fatGrams": 0.0 }
-                  ],
                   "notes": "Short explanation or context"
                 }
             """.trimIndent())
@@ -219,75 +219,25 @@ class GeminiVisionClient(private val context: Context) {
 
         val parsed = JSONObject(cleanedJson)
 
-        val itemsList = mutableListOf<FoodScanSubItem>()
-        val itemsArr = parsed.optJSONArray("items") ?: parsed.optJSONArray("detectedItems")
-        if (itemsArr != null) {
-            for (i in 0 until itemsArr.length()) {
-                val itemObj = itemsArr.getJSONObject(i)
-                val itemName = itemObj.optString("name", "").ifBlank {
-                    itemObj.optString("item", "")
-                }
-                val itemPortion = itemObj.optString("portion", "")
-                val itemCals = itemObj.optInt("calories", 0)
-                val itemProt = if (itemObj.has("proteinGrams")) {
-                    itemObj.optDouble("proteinGrams", 0.0).toFloat()
-                } else {
-                    itemObj.optDouble("protein", 0.0).toFloat()
-                }
-                val itemCarbs = if (itemObj.has("carbsGrams")) {
-                    itemObj.optDouble("carbsGrams", 0.0).toFloat()
-                } else {
-                    itemObj.optDouble("carbs", 0.0).toFloat()
-                }
-                val itemFat = if (itemObj.has("fatGrams")) {
-                    itemObj.optDouble("fatGrams", 0.0).toFloat()
-                } else {
-                    itemObj.optDouble("fat", 0.0).toFloat()
-                }
-
-                if (itemName.isNotBlank() || itemCals > 0) {
-                    itemsList.add(
-                        FoodScanSubItem(
-                            name = itemName.ifBlank { "Item" },
-                            portion = itemPortion,
-                            calories = itemCals,
-                            proteinGrams = itemProt,
-                            carbsGrams = itemCarbs,
-                            fatGrams = itemFat
-                        )
-                    )
-                }
-            }
-        }
-
         var mealName = parsed.optString("mealName", "").ifBlank {
             parsed.optString("foodName", "").ifBlank {
                 parsed.optString("dishName", "").ifBlank {
-                    parsed.optString("name", "")
+                    parsed.optString("name", "Estimated Meal")
                 }
             }
-        }
-        if (mealName.isBlank() || mealName.equals("Estimated Meal", ignoreCase = true)) {
-            if (itemsList.isNotEmpty() && itemsList.first().name.isNotBlank()) {
-                mealName = itemsList.first().name
-            } else {
-                mealName = "Estimated Meal"
-            }
+        }.trim()
+
+        if (mealName.isBlank()) {
+            mealName = "Estimated Meal"
         }
 
         var servingDescription = parsed.optString("servingDescription", "").ifBlank {
             parsed.optString("portion", "").ifBlank {
                 parsed.optString("servingSize", "").ifBlank {
-                    parsed.optString("serving", "")
+                    parsed.optString("serving", "1 serving")
                 }
             }
-        }
-        if (servingDescription.isBlank() && itemsList.isNotEmpty()) {
-            val validPortions = itemsList.mapNotNull { it.portion.ifBlank { null } }
-            if (validPortions.isNotEmpty()) {
-                servingDescription = validPortions.first()
-            }
-        }
+        }.trim()
         if (servingDescription.isBlank()) {
             servingDescription = "1 serving"
         }
@@ -327,7 +277,7 @@ class GeminiVisionClient(private val context: Context) {
             carbsGrams = carbs,
             fatGrams = fat,
             servingDescription = servingDescription,
-            items = itemsList,
+            items = emptyList(),
             notes = notes
         )
     }

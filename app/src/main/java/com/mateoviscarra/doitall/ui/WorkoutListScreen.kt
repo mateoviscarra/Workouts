@@ -47,10 +47,10 @@ fun WorkoutListScreen(
     onNewRoutineClick: () -> Unit,
     showHeader: Boolean = true
 ) {
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-            if (showHeader) {
+    if (showHeader) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = {
                 TopAppBar(
                     title = {
                         Text(
@@ -69,15 +69,44 @@ fun WorkoutListScreen(
                     }
                 )
             }
+        ) { innerPadding ->
+            WorkoutListContent(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                workoutDays = workoutDays,
+                onDaySelected = onDaySelected,
+                onCustomClick = onCustomClick,
+                onEditRoutineClick = onEditRoutineClick,
+                onNewRoutineClick = onNewRoutineClick
+            )
         }
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+    } else {
+        WorkoutListContent(
+            modifier = Modifier.fillMaxSize(),
+            workoutDays = workoutDays,
+            onDaySelected = onDaySelected,
+            onCustomClick = onCustomClick,
+            onEditRoutineClick = onEditRoutineClick,
+            onNewRoutineClick = onNewRoutineClick
+        )
+    }
+}
+
+@Composable
+private fun WorkoutListContent(
+    modifier: Modifier = Modifier,
+    workoutDays: List<WorkoutDay>,
+    onDaySelected: (index: Int) -> Unit,
+    onCustomClick: () -> Unit,
+    onEditRoutineClick: (dayIndex: Int) -> Unit,
+    onNewRoutineClick: () -> Unit
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
             // Quick action buttons: Custom & New Routine
             item {
                 Row(
@@ -266,7 +295,6 @@ fun WorkoutListScreen(
             }
         }
     }
-}
 
 @Composable
 private fun WorkoutButton(

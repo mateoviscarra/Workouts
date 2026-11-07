@@ -608,17 +608,6 @@ fun NutritionScreen(
             result = result,
             onDismiss = { scannedResult = null },
             onConfirm = { name, cals, prot, carbs, fat, slot, note, portionMult, saveAsStaple ->
-                val detectedIngredients = result.items.map { item ->
-                    MealIngredient(
-                        name = item.name,
-                        amountDescription = item.portion,
-                        calories = item.calories,
-                        proteinGrams = item.proteinGrams,
-                        carbsGrams = item.carbsGrams,
-                        fatGrams = item.fatGrams
-                    )
-                }
-
                 viewModel.addManualEntry(
                     name = name,
                     calories = cals,
@@ -628,7 +617,7 @@ fun NutritionScreen(
                     mealSlot = slot,
                     note = note,
                     source = EntrySource.AI_SCAN,
-                    ingredients = detectedIngredients
+                    ingredients = emptyList()
                 )
 
                 if (saveAsStaple) {
@@ -642,7 +631,7 @@ fun NutritionScreen(
                             servingDescription = note,
                             isPinnedStaple = true,
                             defaultMealSlot = slot,
-                            ingredients = detectedIngredients
+                            ingredients = emptyList()
                         )
                     )
                 }
@@ -2983,18 +2972,6 @@ private fun ScanResultReviewDialog(
                             text = "${currentProt.toInt()}g Protein  •  ${currentCarbs.toInt()}g Carbs  •  ${currentFat.toInt()}g Fat",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                // Sub-items list if available
-                if (result.items.isNotEmpty()) {
-                    Text("Detected Items:", style = MaterialTheme.typography.labelMedium)
-                    result.items.forEach { item ->
-                        Text(
-                            text = "• ${item.name} (${item.portion}): ${item.calories} kcal, ${item.proteinGrams.toInt()}g P",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }

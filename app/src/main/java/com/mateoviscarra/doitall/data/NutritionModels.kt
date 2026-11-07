@@ -41,16 +41,28 @@ data class SavedMeal(
     val ingredients: List<MealIngredient> = emptyList()
 ) {
     val totalCalories: Int
-        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.calories } else calories
+        get() = if (ingredients.isNotEmpty()) {
+            val sum = ingredients.sumOf { it.calories }
+            if (sum > 0) sum else calories
+        } else calories
 
     val totalProtein: Float
-        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else proteinGrams
+        get() = if (ingredients.isNotEmpty()) {
+            val sum = ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat()
+            if (sum > 0f) sum else proteinGrams
+        } else proteinGrams
 
     val totalCarbs: Float
-        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else carbsGrams
+        get() = if (ingredients.isNotEmpty()) {
+            val sum = ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat()
+            if (sum > 0f) sum else carbsGrams
+        } else carbsGrams
 
     val totalFat: Float
-        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else fatGrams
+        get() = if (ingredients.isNotEmpty()) {
+            val sum = ingredients.sumOf { it.fatGrams.toDouble() }.toFloat()
+            if (sum > 0f) sum else fatGrams
+        } else fatGrams
 }
 
 data class FoodLogEntry(
@@ -69,16 +81,28 @@ data class FoodLogEntry(
     val ingredients: List<MealIngredient> = emptyList()
 ) {
     val baseCalories: Int
-        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.calories } else calories
+        get() = if (ingredients.isNotEmpty()) {
+            val sum = ingredients.sumOf { it.calories }
+            if (sum > 0) sum else calories
+        } else calories
 
     val baseProtein: Float
-        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else proteinGrams
+        get() = if (ingredients.isNotEmpty()) {
+            val sum = ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat()
+            if (sum > 0f) sum else proteinGrams
+        } else proteinGrams
 
     val baseCarbs: Float
-        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else carbsGrams
+        get() = if (ingredients.isNotEmpty()) {
+            val sum = ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat()
+            if (sum > 0f) sum else carbsGrams
+        } else carbsGrams
 
     val baseFat: Float
-        get() = if (ingredients.isNotEmpty()) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else fatGrams
+        get() = if (ingredients.isNotEmpty()) {
+            val sum = ingredients.sumOf { it.fatGrams.toDouble() }.toFloat()
+            if (sum > 0f) sum else fatGrams
+        } else fatGrams
 
     val totalCalories: Int get() = (baseCalories * portionMultiplier).toInt()
     val totalProtein: Float get() = baseProtein * portionMultiplier
@@ -111,18 +135,17 @@ data class DayNutritionTotals(
 )
 
 const val DEFAULT_NUTRITION_AI_PROMPT = """You are an expert nutritionist and visual food analyst based in Bolivia.
-The user is located in Bolivia, so estimate dishes and ingredients with local Bolivian cuisine and supermarket products in mind (e.g. Bolivian cuts of meat, marraqueta, sarnita, salteñas, silpancho, pique macho, majadito, sopa de maní, llajwa, local protein bars/alfajores, dairy products, grains like quinoa, etc.) as well as international fitness foods.
-Analyze the image or description provided. Always identify the specific name of the dish or food (mealName) and estimate its portion size or serving description (servingDescription), along with total calories and macronutrients (protein, carbs, fat in grams).
+The user is located in Bolivia, so estimate dishes with local Bolivian cuisine and supermarket products in mind (e.g. Bolivian cuts of meat, marraqueta, sarnita, salteñas, silpancho, pique macho, majadito, sopa de maní, llajwa, local protein bars/alfajores, dairy products, grains like quinoa, etc.) as well as international fitness foods.
+Analyze the image or description provided.
+Estimate the entire meal as a whole for fast, quick logging: total calories, protein, carbs, and fat in grams. Do NOT break it down into separate individual ingredients or sub-items.
+Keep 'mealName' very short and concise (1-3 words max, e.g. 'Ceviche', 'Silpancho', 'Oatmeal', 'Majadito', 'Marraqueta con Queso'). Do NOT output long compound names (e.g. use 'Ceviche' instead of 'Ceviche Boliviano de Trucha con Camote'). If the user note mentions extra ingredients or sides (like camote, avocado, extra cheese), incorporate their macros into the total and mention them in 'servingDescription' (e.g. '1 plato con camote') or 'notes', but keep 'mealName' clean and concise.
 Return STRICT JSON in the following format:
 {
-  "mealName": "Specific name of the meal or dish (e.g. Silpancho, Overnight Oats con Frutos Rojos, Marraqueta con Queso, etc.)",
-  "servingDescription": "Estimated portion or unit (e.g. 1 plato (~400g), 1 taza, 2 unidades, 1 paquete (~60g))",
+  "mealName": "Short, concise name of dish (e.g. Ceviche, Silpancho, Oatmeal)",
+  "servingDescription": "Estimated portion or unit (e.g. 1 plato (~400g), 1 taza, 2 unidades)",
   "calories": 450,
   "protein": 30.0,
   "carbs": 50.0,
   "fat": 12.0,
-  "detectedItems": [
-    {"name": "Item name", "portion": "Portion description, e.g. 150g carne"}
-  ],
   "notes": "Short helpful context or culinary estimation explanation"
 }"""

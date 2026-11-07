@@ -266,6 +266,12 @@ class NutritionRepository(
                 }
             }
 
+            val validIngredients = if (ingList.isNotEmpty() && ingList.all { it.calories == 0 && it.proteinGrams == 0f && it.carbsGrams == 0f && it.fatGrams == 0f }) {
+                emptyList()
+            } else {
+                ingList
+            }
+
             list.add(
                 SavedMeal(
                     id = obj.optString("id", UUID.randomUUID().toString()),
@@ -277,7 +283,7 @@ class NutritionRepository(
                     servingDescription = obj.optString("servingDescription", ""),
                     isPinnedStaple = obj.optBoolean("isPinnedStaple", true),
                     defaultMealSlot = slot,
-                    ingredients = ingList
+                    ingredients = validIngredients
                 )
             )
         }
@@ -380,6 +386,12 @@ class NutritionRepository(
                 }
             }
 
+            val validIngredients = if (ingList.isNotEmpty() && ingList.all { it.calories == 0 && it.proteinGrams == 0f && it.carbsGrams == 0f && it.fatGrams == 0f }) {
+                emptyList()
+            } else {
+                ingList
+            }
+
             list.add(
                 FoodLogEntry(
                     id = obj.optString("id", UUID.randomUUID().toString()),
@@ -394,7 +406,7 @@ class NutritionRepository(
                     portionMultiplier = obj.optDouble("portionMultiplier", 1.0).toFloat(),
                     source = source,
                     note = obj.optString("note", ""),
-                    ingredients = ingList
+                    ingredients = validIngredients
                 )
             )
         }
