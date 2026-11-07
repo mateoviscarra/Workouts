@@ -23,6 +23,13 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -64,6 +71,7 @@ fun CalendarSettingsScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
     var isConnecting by remember { mutableStateOf(false) }
@@ -74,6 +82,30 @@ fun CalendarSettingsScreen(
 
     Log.d(TAG, "CalendarSettingsScreen init, connectionStatus: $connectionStatus")
 
+    // Automatically check/validate existing session on screen entry
+    LaunchedEffect(Unit) {
+        val currentAccount = calendarManager.getLastSignedInAccount()
+        if (currentAccount != null) {
+            val silentClient = if (activity != null) {
+                calendarManager.getGoogleSignInClient(activity)
+            } else {
+                calendarManager.getGoogleSignInClient()
+            }
+            silentClient.silentSignIn()
+                .addOnSuccessListener { account ->
+                    Log.d(TAG, "Initial silent sign-in succeeded: ${account.email}")
+                    calendarManager.setAuthSuccess()
+                    connectionStatus = calendarManager.getAuthState()
+                }
+                .addOnFailureListener { e ->
+                    Log.w(TAG, "Initial silent sign-in failed", e)
+                    val statusCode = (e as? ApiException)?.statusCode
+                    calendarManager.setAuthFailure("Session expired or key mismatch (Code $statusCode)")
+                    connectionStatus = calendarManager.getAuthState()
+                }
+        }
+    }
+
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -81,14 +113,16 @@ fun CalendarSettingsScreen(
         isConnecting = false
         
         // First try silent sign-in - check if there's already a signed in account
-        val silentClient = calendarManager.getGoogleSignInClient(activity!!)
+        val silentClient = if (activity != null) {
+            calendarManager.getGoogleSignInClient(activity)
+        } else {
+            calendarManager.getGoogleSignInClient()
+        }
         silentClient.silentSignIn().addOnSuccessListener { account ->
             Log.d(TAG, "Silent sign-in success: ${account.email}")
-            connectionStatus = CalendarAuthState(
-                isConnected = true,
-                email = account.email,
-                displayName = account.displayName
-            )
+            calendarManager.setAuthSuccess()
+            connectionStatus = calendarManager.getAuthState()
+            errorMessage = null
             successMessage = "Successfully connected to Google Calendar!"
         }.addOnFailureListener { e ->
             Log.e(TAG, "Silent sign-in failed, trying explicit", e)
@@ -97,23 +131,21 @@ fun CalendarSettingsScreen(
                 val task = result.data?.let { GoogleSignIn.getSignedInAccountFromIntent(it) }
                 task?.addOnSuccessListener { account ->
                     Log.d(TAG, "Explicit sign-in success: ${account.email}")
-                    connectionStatus = CalendarAuthState(
-                        isConnected = true,
-                        email = account.email,
-                        displayName = account.displayName
-                    )
+                    calendarManager.setAuthSuccess()
+                    connectionStatus = calendarManager.getAuthState()
+                    errorMessage = null
                     successMessage = "Successfully connected to Google Calendar!"
                 }?.addOnFailureListener { e2 ->
                     Log.e(TAG, "Explicit sign-in also failed", e2)
-            errorMessage = "Sign-in failed (Error 10). You need to add this app to Google Cloud Console:\n\n" +
-                "1. Go to console.cloud.google.com\n" +
-                "2. Select your project (or create one)\n" +
-                "3. Go to APIs & Services → Credentials\n" +
-                "4. Create OAuth client ID → Android\n" +
-                "5. Add this SHA-1: 4E:F3:4B:E1:20:1B:8D:F9:36:FE:5A:DD:03:6C:05:13:26:C2:33:81\n" +
-                "6. Package name: com.mateoviscarra.doitall\n\n" +
-                "Alternatively, use the old method in Settings → Calendar Settings."
-        }
+                    val statusCode = (e2 as? ApiException)?.statusCode
+                    calendarManager.setAuthFailure("Sign-in failed (Code $statusCode)")
+                    connectionStatus = calendarManager.getAuthState()
+                    errorMessage = if (statusCode == 10 || statusCode == CommonStatusCodes.DEVELOPER_ERROR) {
+                        "DEVELOPER_ERROR_10"
+                    } else {
+                        "Sign-in failed: ${e2.localizedMessage ?: "Status code $statusCode"}"
+                    }
+                }
             } catch (e2: Exception) {
                 Log.e(TAG, "Error handling sign-in", e2)
                 errorMessage = "Sign-in error: ${e2.message}"
@@ -144,10 +176,15 @@ fun CalendarSettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            val hasAuthError = calendarManager.hasAuthError
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                    containerColor = when {
+                        connectionStatus.isConnected -> MaterialTheme.colorScheme.primaryContainer
+                        hasAuthError -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    }
                 )
             ) {
                 Column(
@@ -158,16 +195,32 @@ fun CalendarSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = if (connectionStatus.isConnected) Icons.Default.Check else Icons.Default.CalendarMonth,
+                            imageVector = when {
+                                connectionStatus.isConnected -> Icons.Default.Check
+                                hasAuthError -> Icons.Default.Warning
+                                else -> Icons.Default.CalendarMonth
+                            },
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            tint = when {
+                                connectionStatus.isConnected -> MaterialTheme.colorScheme.onPrimaryContainer
+                                hasAuthError -> MaterialTheme.colorScheme.onErrorContainer
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (connectionStatus.isConnected) "Google Calendar Connected" else "Google Calendar Not Connected",
+                            text = when {
+                                connectionStatus.isConnected -> "Google Calendar Connected"
+                                hasAuthError -> "Reconnection Required"
+                                else -> "Google Calendar Not Connected"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = when {
+                                connectionStatus.isConnected -> MaterialTheme.colorScheme.onPrimaryContainer
+                                hasAuthError -> MaterialTheme.colorScheme.onErrorContainer
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                     }
                     if (connectionStatus.isConnected) {
@@ -181,28 +234,157 @@ fun CalendarSettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
+                    } else if (hasAuthError) {
+                        if (!connectionStatus.email.isNullOrBlank()) {
+                            Text(
+                                text = "Account: ${connectionStatus.email}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                        Text(
+                            text = "Calendar authentication failed or the app signing key changed. Please sign in again below to re-authorize.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
                     } else {
                         Text(
                             text = "Connect your Google Calendar to sync workout schedules.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
 
             if (errorMessage != null) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
-                ) {
-                    Text(
-                        text = errorMessage!!,
-                        modifier = Modifier.padding(16.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
+                if (errorMessage == "DEVELOPER_ERROR_10") {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Google Cloud Setup (Error 10)",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                                IconButton(onClick = { errorMessage = null }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Dismiss",
+                                        tint = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "This Windows build uses a new debug keystore SHA-1. In your existing Google Cloud project, simply add this SHA-1 as a second Android OAuth Client:\n\n" +
+                                        "1. Go to console.cloud.google.com\n" +
+                                        "2. Select your project → APIs & Services → Credentials\n" +
+                                        "3. Click Create Credentials → OAuth client ID\n" +
+                                        "4. Application type: Android\n" +
+                                        "5. Package name: com.mateoviscarra.doitall\n" +
+                                        "6. SHA-1 fingerprint: paste the key below",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "80:22:73:88:96:7D:30:D4:6C:BF:A6:F0:94:65:A4:2D:97:AF:88:53",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            clipboardManager.setText(
+                                                AnnotatedString("80:22:73:88:96:7D:30:D4:6C:BF:A6:F0:94:65:A4:2D:97:AF:88:53")
+                                            )
+                                            successMessage = "SHA-1 copied to clipboard!"
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copy SHA-1"
+                                        )
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "Once saved in Google Cloud Console, wait ~1 minute for propagation, then tap 'Sign in with Google' below.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = errorMessage!!,
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            IconButton(onClick = { errorMessage = null }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -397,11 +579,10 @@ fun CalendarSettingsScreen(
         )
     }
 
-    LaunchedEffect(successMessage, errorMessage) {
-        if (successMessage != null || errorMessage != null) {
+    LaunchedEffect(successMessage) {
+        if (successMessage != null) {
             delay(3000)
             successMessage = null
-            errorMessage = null
         }
     }
 }

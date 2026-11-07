@@ -58,6 +58,21 @@ class CalendarManager(private val context: Context) {
         private const val KEY_SELECTED_CALENDAR = "selected_calendar_id"
     }
 
+    var lastAuthError: String? = null
+        private set
+    var hasAuthError: Boolean = false
+        private set
+
+    fun setAuthSuccess() {
+        hasAuthError = false
+        lastAuthError = null
+    }
+
+    fun setAuthFailure(error: String) {
+        hasAuthError = true
+        lastAuthError = error
+    }
+
     fun getGoogleSignInClient(): GoogleSignInClient {
         googleSignInClient?.let { return it }
 
@@ -81,19 +96,17 @@ class CalendarManager(private val context: Context) {
 
     fun getAuthState(): CalendarAuthState {
         val account = getLastSignedInAccount()
-        Log.d(TAG, "getAuthState: account = $account")
-        return if (account != null && account.account != null) {
-            CalendarAuthState(
-                isConnected = true,
-                email = account.email,
-                displayName = account.displayName
-            )
-        } else {
-            CalendarAuthState(isConnected = false)
-        }
+        val hasPermissions = account != null && GoogleSignIn.hasPermissions(account, Scope(CALENDAR_SCOPES))
+        val isConnected = account != null && account.account != null && hasPermissions && !hasAuthError
+        Log.d(TAG, "getAuthState: account = ${account?.email}, hasPermissions = $hasPermissions, hasAuthError = $hasAuthError, isConnected = $isConnected")
+        return CalendarAuthState(
+            isConnected = isConnected,
+            email = account?.email,
+            displayName = account?.displayName
+        )
     }
 
-    private fun getLastSignedInAccount(): GoogleSignInAccount? {
+    fun getLastSignedInAccount(): GoogleSignInAccount? {
         // Always get fresh account from GoogleSignIn, don't use cache
         // cachedAccount is only used for initial state check
         val account = GoogleSignIn.getLastSignedInAccount(context)
@@ -112,9 +125,15 @@ class CalendarManager(private val context: Context) {
 
     suspend fun disconnect() = withContext(Dispatchers.Main) {
         val client = getGoogleSignInClient()
-        client.signOut()
+        try {
+            client.signOut()
+        } catch (e: Exception) {
+            Log.w(TAG, "signOut error", e)
+        }
         cachedAccount = null
         cachedService = null
+        hasAuthError = false
+        lastAuthError = null
         prefs.edit().clear().apply()
     }
 
@@ -130,10 +149,12 @@ class CalendarManager(private val context: Context) {
     private fun requestAuthToken(): String? {
         val account = getLastSignedInAccount() ?: run {
             Log.e(TAG, "requestAuthToken: no account")
+            setAuthFailure("Not signed in")
             return null
         }
         val email = account.email ?: run {
             Log.e(TAG, "requestAuthToken: no email")
+            setAuthFailure("No account email")
             return null
         }
 
@@ -168,9 +189,15 @@ class CalendarManager(private val context: Context) {
             }
             
             Log.d(TAG, "requestAuthToken: got token=${token != null}")
+            if (token != null) {
+                setAuthSuccess()
+            } else {
+                setAuthFailure("Unable to retrieve Google Calendar token. Please reconnect in Settings.")
+            }
             token
         } catch (e: Exception) {
             Log.e(TAG, "requestAuthToken failed", e)
+            setAuthFailure("Authentication error: ${e.localizedMessage ?: "Token request rejected"}. Please reconnect in Settings.")
             null
         }
     }
@@ -181,10 +208,12 @@ class CalendarManager(private val context: Context) {
         
         val account = getLastSignedInAccount() ?: run {
             Log.e(TAG, "getCalendarService: no account")
+            setAuthFailure("Not signed in to Google account")
             return@withContext null
         }
         val email = account.email ?: run {
             Log.e(TAG, "getCalendarService: no email")
+            setAuthFailure("Google account has no email")
             return@withContext null
         }
         val authToken = requestAuthToken() ?: run {
@@ -205,7 +234,7 @@ class CalendarManager(private val context: Context) {
             }
 
             val service = Calendar.Builder(transport, jsonFactory, credential)
-                .setApplicationName("DoItAll")
+                .setApplicationName("Workouts")
                 .build()
 
             cachedService = service
@@ -224,7 +253,9 @@ class CalendarManager(private val context: Context) {
     suspend fun getAvailableCalendars(): Result<List<CalendarInfo>> = withContext(Dispatchers.IO) {
         try {
             invalidateServiceCache()
-            val service = getCalendarService() ?: return@withContext Result.failure(Exception("Not signed in"))
+            val service = getCalendarService() ?: return@withContext Result.failure(
+                Exception(lastAuthError ?: "Google Calendar authorization required. Please reconnect in Settings.")
+            )
 
             Log.d(TAG, "Fetching calendar list...")
             val calendarList = service.calendarList().list()
@@ -262,7 +293,9 @@ class CalendarManager(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             invalidateServiceCache()
-            val service = getCalendarService() ?: return@withContext Result.failure(Exception("Not signed in"))
+            val service = getCalendarService() ?: return@withContext Result.failure(
+                Exception(lastAuthError ?: "Google Calendar authorization required. Please reconnect in Settings.")
+            )
 
             val startDateTime = LocalDateTime.of(date.year, date.monthValue, date.dayOfMonth, startHour, startMinute)
             val endDateTime = startDateTime.plusMinutes(durationMinutes.toLong())
@@ -271,7 +304,7 @@ class CalendarManager(private val context: Context) {
 
             val event = Event()
                 .setSummary(title)
-                .setDescription(description ?: "Workout scheduled from DoItAll")
+                .setDescription(description ?: "Workout scheduled from Workouts")
 
             val start = EventDateTime()
                 .setDateTime(com.google.api.client.util.DateTime(startDateTime.atZone(zoneId).toInstant().toString()))
@@ -302,7 +335,9 @@ class CalendarManager(private val context: Context) {
 
     suspend fun getUpcomingWorkouts(maxResults: Int = 10): Result<List<Event>> = withContext(Dispatchers.IO) {
         try {
-            val service = getCalendarService() ?: return@withContext Result.failure(Exception("Not signed in"))
+            val service = getCalendarService() ?: return@withContext Result.failure(
+                Exception(lastAuthError ?: "Google Calendar authorization required. Please reconnect in Settings.")
+            )
 
             val now = com.google.api.client.util.DateTime(System.currentTimeMillis())
             val events = service.events().list("primary")

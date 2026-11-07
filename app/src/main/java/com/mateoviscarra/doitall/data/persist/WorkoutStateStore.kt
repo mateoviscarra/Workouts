@@ -43,6 +43,11 @@ class WorkoutStateStore(private val context: Context) {
         )
     }
 
+    suspend fun loadPersistRoot(): PersistRootV2 {
+        val prefs = dataStore.data.first()
+        return parsePersistRootV2(prefs[JSON_KEY_V2])
+    }
+
     suspend fun updateSelectedPage(dayKey: String, day: WorkoutDay, slotIndex: Int, page: Int) {
         dataStore.edit { prefs ->
             val root = parsePersistRootV2(prefs[JSON_KEY_V2])

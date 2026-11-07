@@ -18,36 +18,54 @@ private fun parseLoadString(load: String): Pair<Boolean, String> {
     if (trimmed.equals("bodyweight", ignoreCase = true)) {
         return true to ""
     }
-    val bwPlusRegex = Regex("""(?i)bodyweight\s*\+\s*(.+)""")
-    val match = bwPlusRegex.find(trimmed)
+    val bwRegex = Regex("""(?i)bodyweight\s*([+\-])\s*(.+)""")
+    val match = bwRegex.find(trimmed)
     if (match != null) {
-        // Extract the numeric part only (strip trailing unit words like "kg")
-        val rest = match.groupValues[1].trim()
-        // Keep just the number
-        val numMatch = Regex("""[\d.]+""").find(rest)
+        val sign = match.groupValues[1].trim()
+        val rest = match.groupValues[2].trim()
+        val numMatch = Regex("""[+-]?[\d.]+""").find(rest)
         val numStr = numMatch?.value ?: rest
-        return true to numStr
+        val finalNum = if (sign == "-" && !numStr.startsWith("-")) "-$numStr" else numStr
+        return true to finalNum
+    }
+    if (trimmed.startsWith("bodyweight", ignoreCase = true)) {
+        val rest = trimmed.substring("bodyweight".length).trim()
+        val numMatch = Regex("""[+-]?[\d.]+""").find(rest)
+        if (numMatch != null) {
+            return true to numMatch.value
+        }
+        return true to ""
     }
     return false to trimmed
 }
 
 fun defaultExerciseLog(def: ExerciseDefinition): ExerciseLogState {
     val cardio = def.duration != null
+    val isTimed = def.isTimed || def.reps.contains("s", ignoreCase = true) || def.reps.contains("sec", ignoreCase = true)
     val sets = if (cardio) 1 else def.defaultSetsInt().coerceAtLeast(1)
-    val repsSingle = if (cardio) null else def.defaultRepsInt()
-    val (isBodyweight, parsedWeight) = if (cardio) false to "" else parseLoadString(def.load)
+    val repsSingle = if (cardio || isTimed) null else def.defaultRepsInt()
+    val (parsedIsBodyweight, parsedWeight) = if (cardio) false to "" else parseLoadString(def.load)
+    val isBodyweight = def.isBodyweight || parsedIsBodyweight
+    val timeTarget = if (isTimed) {
+        if (def.defaultTime.isNotBlank()) def.defaultTime else if (def.reps.isNotBlank()) def.reps else "60s"
+    } else "60s"
+    val unit = if (def.weightUnit.equals("lbs", ignoreCase = true)) WeightUnit.LBS else WeightUnit.KG
+
     return ExerciseLogState(
         sets = sets,
         weight = if (cardio) "" else parsedWeight,
         usePerSetReps = false,
         repsSingle = repsSingle,
         repsPerSet = null,
-        comment = "",
+        comment = def.defaultNotes,
         isCardio = cardio,
         duration = def.duration,
         intensity = def.intensity,
-        weightUnit = WeightUnit.KG,
-        isBodyweight = isBodyweight
+        weightUnit = unit,
+        isBodyweight = isBodyweight,
+        usesStraps = def.usesStraps,
+        isTimed = isTimed,
+        timeTarget = timeTarget
     )
 }
 

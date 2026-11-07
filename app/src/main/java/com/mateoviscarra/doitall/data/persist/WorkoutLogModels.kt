@@ -20,7 +20,9 @@ data class ExerciseLogState(
     val intensity: String?,
     val weightUnit: WeightUnit = WeightUnit.KG,
     val isBodyweight: Boolean = false,
-    val usesStraps: Boolean = false
+    val usesStraps: Boolean = false,
+    val isTimed: Boolean = false,
+    val timeTarget: String = "60s"
 ) {
     companion object {
         const val MAX_COMMENT_LENGTH = 128
