@@ -3,6 +3,7 @@ package com.mateoviscarra.doitall.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.mateoviscarra.doitall.data.persist.WeightUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ private const val TAG = "NutritionRepository"
 private const val PREFS_NAME = "nutrition_prefs"
 private const val KEY_SAVED_MEALS = "saved_meals_json"
 private const val KEY_FOOD_LOGS = "food_logs_json"
+private const val KEY_WEIGHT_LOGS = "weight_logs_json"
 private const val KEY_NUTRITION_GOALS = "nutrition_goals_json"
 private const val KEY_AI_PROMPT = "custom_ai_prompt"
 private const val KEY_GEMINI_API_KEY = "gemini_api_key"
@@ -35,6 +37,9 @@ class NutritionRepository(
 
     private val _foodLogs = MutableStateFlow<List<FoodLogEntry>>(emptyList())
     val foodLogs: StateFlow<List<FoodLogEntry>> = _foodLogs.asStateFlow()
+
+    private val _weightLogs = MutableStateFlow<List<WeightLogEntry>>(emptyList())
+    val weightLogs: StateFlow<List<WeightLogEntry>> = _weightLogs.asStateFlow()
 
     private val _aiPrompt = MutableStateFlow(DEFAULT_NUTRITION_AI_PROMPT)
     val aiPrompt: StateFlow<String> = _aiPrompt.asStateFlow()
@@ -108,6 +113,16 @@ class NutritionRepository(
                 _foodLogs.value = parseFoodLogs(logsJson)
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading food logs", e)
+            }
+        }
+
+        // Weight Logs
+        val weightsJson = prefs.getString(KEY_WEIGHT_LOGS, null)
+        if (!weightsJson.isNullOrBlank()) {
+            try {
+                _weightLogs.value = parseWeightLogs(weightsJson)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading weight logs", e)
             }
         }
 
@@ -353,6 +368,19 @@ class NutritionRepository(
         }
         root.put("foodLogs", logsArr)
 
+        // Weight logs
+        val weightsArr = JSONArray()
+        _weightLogs.value.forEach { w ->
+            weightsArr.put(JSONObject().apply {
+                put("id", w.id)
+                put("dateIso", w.dateIso)
+                put("weight", w.weight.toDouble())
+                put("unit", w.unit.name)
+                put("note", w.note)
+            })
+        }
+        root.put("weightLogs", weightsArr)
+
         return root
     }
 
@@ -378,5 +406,83 @@ class NutritionRepository(
             _foodLogs.value = logs
             saveFoodLogsToDisk(logs)
         }
+        if (obj.has("weightLogs")) {
+            val weights = parseWeightLogs(obj.getJSONArray("weightLogs").toString())
+            _weightLogs.value = weights
+            saveWeightLogsToDisk(weights)
+        }
+    }
+
+    // --- Weight Logging ---
+    fun logWeight(dateIso: String, weight: Float, unit: WeightUnit = WeightUnit.KG, note: String = ""): WeightLogEntry {
+        val current = _weightLogs.value.toMutableList()
+        val existingIndex = current.indexOfFirst { it.dateIso == dateIso }
+        val entry = if (existingIndex >= 0) {
+            val existing = current[existingIndex]
+            val updated = existing.copy(weight = weight, unit = unit, note = note)
+            current[existingIndex] = updated
+            updated
+        } else {
+            val newEntry = WeightLogEntry(
+                id = UUID.randomUUID().toString(),
+                dateIso = dateIso,
+                weight = weight,
+                unit = unit,
+                note = note
+            )
+            current.add(newEntry)
+            newEntry
+        }
+        current.sortByDescending { it.dateIso }
+        _weightLogs.value = current
+        saveWeightLogsToDisk(current)
+        return entry
+    }
+
+    fun deleteWeightLog(id: String) {
+        val updated = _weightLogs.value.filter { it.id != id }
+        _weightLogs.value = updated
+        saveWeightLogsToDisk(updated)
+    }
+
+    fun getWeightForDate(dateIso: String): WeightLogEntry? {
+        return _weightLogs.value.firstOrNull { it.dateIso == dateIso }
+    }
+
+    private fun saveWeightLogsToDisk(list: List<WeightLogEntry>) {
+        scope.launch {
+            val arr = JSONArray()
+            list.forEach { w ->
+                val obj = JSONObject().apply {
+                    put("id", w.id)
+                    put("dateIso", w.dateIso)
+                    put("weight", w.weight.toDouble())
+                    put("unit", w.unit.name)
+                    put("note", w.note)
+                }
+                arr.put(obj)
+            }
+            prefs.edit().putString(KEY_WEIGHT_LOGS, arr.toString()).apply()
+        }
+    }
+
+    private fun parseWeightLogs(jsonStr: String): List<WeightLogEntry> {
+        val arr = JSONArray(jsonStr)
+        val list = mutableListOf<WeightLogEntry>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val unitStr = obj.optString("unit", WeightUnit.KG.name)
+            val unit = try { WeightUnit.valueOf(unitStr) } catch (_: Exception) { WeightUnit.KG }
+            list.add(
+                WeightLogEntry(
+                    id = obj.optString("id", UUID.randomUUID().toString()),
+                    dateIso = obj.getString("dateIso"),
+                    weight = obj.getDouble("weight").toFloat(),
+                    unit = unit,
+                    note = obj.optString("note", "")
+                )
+            )
+        }
+        return list.sortedByDescending { it.dateIso }
     }
 }

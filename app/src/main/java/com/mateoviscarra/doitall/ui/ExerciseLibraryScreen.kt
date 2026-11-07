@@ -73,7 +73,8 @@ fun ExerciseLibraryScreen(
     onEditExercise: (categoryId: String, CategoryExercise) -> Unit,
     onDeleteExercise: (categoryId: String, exerciseId: String) -> Unit,
     onAddCategory: (String) -> Unit,
-    onDeleteCategory: (String) -> Unit
+    onDeleteCategory: (String) -> Unit,
+    showHeader: Boolean = true
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) } // null = All
@@ -101,17 +102,19 @@ fun ExerciseLibraryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Exercise Library", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = { showAddCategoryDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Category,
-                            contentDescription = "Add Category"
-                        )
+            if (showHeader) {
+                TopAppBar(
+                    title = { Text("Exercise Library", fontWeight = FontWeight.Bold) },
+                    actions = {
+                        IconButton(onClick = { showAddCategoryDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Category,
+                                contentDescription = "Add Category"
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -163,6 +166,11 @@ fun ExerciseLibraryScreen(
                         label = { Text("${cat.name} (${cat.exercises.size})") }
                     )
                 }
+                FilterChip(
+                    selected = false,
+                    onClick = { showAddCategoryDialog = true },
+                    label = { Text("+ Category") }
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))

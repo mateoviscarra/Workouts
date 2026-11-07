@@ -22,30 +22,31 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -53,8 +54,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -65,8 +64,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -78,6 +79,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,10 +93,14 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mateoviscarra.doitall.data.DayNutritionTotals
 import com.mateoviscarra.doitall.data.EntrySource
 import com.mateoviscarra.doitall.data.FoodLogEntry
 import com.mateoviscarra.doitall.data.MealSlot
+import com.mateoviscarra.doitall.data.NutritionGoals
 import com.mateoviscarra.doitall.data.SavedMeal
+import com.mateoviscarra.doitall.data.WeightLogEntry
+import com.mateoviscarra.doitall.data.persist.WeightUnit
 import com.mateoviscarra.doitall.network.FoodScanResult
 import com.mateoviscarra.doitall.network.GeminiVisionClient
 import com.mateoviscarra.doitall.viewmodel.NutritionViewModel
@@ -102,6 +108,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -114,11 +121,18 @@ fun NutritionScreen(
     val scope = rememberCoroutineScope()
     val visionClient = remember { GeminiVisionClient(context.applicationContext) }
 
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+
     val selectedDateIso by viewModel.selectedDate.collectAsStateWithLifecycle()
     val goals by viewModel.goals.collectAsStateWithLifecycle()
     val dayTotals by viewModel.currentDayTotals.collectAsStateWithLifecycle()
     val dayLogs by viewModel.currentDayLogs.collectAsStateWithLifecycle()
     val savedMeals by viewModel.savedMeals.collectAsStateWithLifecycle()
+    val allWeightLogs by viewModel.allWeightLogs.collectAsStateWithLifecycle()
+    val currentDayWeight by viewModel.currentDayWeight.collectAsStateWithLifecycle()
+    val latestWeight by viewModel.latestWeight.collectAsStateWithLifecycle()
+    val sevenDayAverageWeight by viewModel.sevenDayAverageWeight.collectAsStateWithLifecycle()
+    val weeklyWeightDelta by viewModel.weeklyWeightDelta.collectAsStateWithLifecycle()
     val apiKey by viewModel.geminiApiKey.collectAsStateWithLifecycle()
     val aiPrompt by viewModel.aiPrompt.collectAsStateWithLifecycle()
 
@@ -129,6 +143,11 @@ fun NutritionScreen(
 
     var showStapleEditorDialog by remember { mutableStateOf(false) }
     var stapleToEdit by remember { mutableStateOf<SavedMeal?>(null) }
+    var stapleToDelete by remember { mutableStateOf<SavedMeal?>(null) }
+
+    var showWeightDialog by remember { mutableStateOf(false) }
+    var weightLogToEdit by remember { mutableStateOf<WeightLogEntry?>(null) }
+    var weightLogToDelete by remember { mutableStateOf<WeightLogEntry?>(null) }
 
     var showScanSourceSheet by remember { mutableStateOf(false) }
     var scanUserNote by remember { mutableStateOf("") }
@@ -185,7 +204,7 @@ fun NutritionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Nutrition") },
+                title = { Text("Nutrition", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -198,144 +217,141 @@ fun NutritionScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // --- DATE STRIP ---
-            DateNavigationStrip(
-                selectedDateIso = selectedDateIso,
-                onPrevious = { viewModel.previousDay() },
-                onNext = { viewModel.nextDay() },
-                onToday = { viewModel.goToToday() }
-            )
-
-            // --- MACRO OVERVIEW CARD ---
-            MacroOverviewCard(
-                goals = goals,
-                totals = dayTotals
-            )
-
-            // --- ACTION BUTTONS (SCAN, QUICK ADD, NEW STAPLE) ---
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = {
-                        if (apiKey.isBlank()) {
-                            Toast.makeText(context, "Please set your Gemini API key in Settings first", Toast.LENGTH_LONG).show()
-                            onNavigateToSettings()
-                        } else {
-                            showScanSourceSheet = true
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("AI Scan", maxLines = 1, fontSize = 13.sp)
-                }
-
-                Button(
-                    onClick = {
-                        initialSlotForAdd = MealSlot.LUNCH
-                        showQuickAddDialog = true
-                    },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Quick Add", maxLines = 1, fontSize = 13.sp)
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        stapleToEdit = null
-                        showStapleEditorDialog = true
-                    },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
-                ) {
-                    Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Staple", maxLines = 1, fontSize = 13.sp)
-                }
-            }
-
-            // --- PINNED STAPLES CAROUSEL ---
-            val pinnedStaples = savedMeals.filter { it.isPinnedStaple }
-            if (pinnedStaples.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Staples & Favorites",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "1-tap add",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(pinnedStaples, key = { it.id }) { staple ->
-                            StapleCard(
-                                staple = staple,
-                                onLogClick = {
-                                    viewModel.logStaple(staple)
-                                    Toast.makeText(context, "Added ${staple.name} to log", Toast.LENGTH_SHORT).show()
-                                },
-                                onEditClick = {
-                                    stapleToEdit = staple
-                                    showStapleEditorDialog = true
-                                },
-                                onDeleteClick = {
-                                    viewModel.deleteSavedMeal(staple.id)
-                                    Toast.makeText(context, "Deleted staple", Toast.LENGTH_SHORT).show()
-                                }
-                            )
+            // Three Pillars of Nutrition: Daily Log | Staples | Weight & Trends
+            PrimaryTabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Restaurant, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Daily Log")
                         }
                     }
-                }
-            }
-
-            // --- MEALS LOG (BY SLOT) ---
-            Text(
-                text = "Today's Log",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            MealSlot.entries.forEach { slot ->
-                val entriesForSlot = dayLogs.filter { it.mealSlot == slot }
-                MealSlotCard(
-                    slot = slot,
-                    entries = entriesForSlot,
-                    onAddClick = {
-                        initialSlotForAdd = slot
-                        showQuickAddDialog = true
-                    },
-                    onEntryClick = { entry ->
-                        entryToEdit = entry
-                    },
-                    onDeleteEntry = { entry ->
-                        viewModel.deleteEntry(entry.id)
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Staples")
+                        }
+                    }
+                )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Weight & Trends")
+                        }
                     }
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            when (selectedTab) {
+                0 -> {
+                    // TAB 0: DAILY LOG
+                    DailyLogView(
+                        selectedDateIso = selectedDateIso,
+                        goals = goals,
+                        totals = dayTotals,
+                        dayLogs = dayLogs,
+                        savedMeals = savedMeals,
+                        currentDayWeight = currentDayWeight,
+                        onPreviousDay = { viewModel.previousDay() },
+                        onNextDay = { viewModel.nextDay() },
+                        onToday = { viewModel.goToToday() },
+                        onScanClick = {
+                            if (apiKey.isBlank()) {
+                                Toast.makeText(context, "Please set your Gemini API key in Settings first", Toast.LENGTH_LONG).show()
+                                onNavigateToSettings()
+                            } else {
+                                showScanSourceSheet = true
+                            }
+                        },
+                        onQuickAddClick = {
+                            initialSlotForAdd = MealSlot.LUNCH
+                            showQuickAddDialog = true
+                        },
+                        onManageStaplesClick = {
+                            selectedTab = 1
+                        },
+                        onNewStapleClick = {
+                            stapleToEdit = null
+                            showStapleEditorDialog = true
+                        },
+                        onLogStaple = { staple ->
+                            viewModel.logStaple(staple)
+                            Toast.makeText(context, "Added ${staple.name} to log", Toast.LENGTH_SHORT).show()
+                        },
+                        onAddSlotEntry = { slot ->
+                            initialSlotForAdd = slot
+                            showQuickAddDialog = true
+                        },
+                        onEntryClick = { entry ->
+                            entryToEdit = entry
+                        },
+                        onDeleteEntry = { entry ->
+                            viewModel.deleteEntry(entry.id)
+                        },
+                        onWeightClick = {
+                            weightLogToEdit = currentDayWeight
+                            showWeightDialog = true
+                        }
+                    )
+                }
+                1 -> {
+                    // TAB 1: STAPLES
+                    StaplesManagementView(
+                        savedMeals = savedMeals,
+                        onNewStapleClick = {
+                            stapleToEdit = null
+                            showStapleEditorDialog = true
+                        },
+                        onEditStaple = { staple ->
+                            stapleToEdit = staple
+                            showStapleEditorDialog = true
+                        },
+                        onDeleteStaple = { staple ->
+                            stapleToDelete = staple
+                        },
+                        onTogglePin = { stapleId ->
+                            viewModel.togglePinnedStaple(stapleId)
+                        },
+                        onLogStapleToToday = { staple ->
+                            viewModel.logStaple(staple)
+                            Toast.makeText(context, "Added ${staple.name} to today's log", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+                2 -> {
+                    // TAB 2: WEIGHT & TRENDS
+                    WeightAndTrendsView(
+                        allWeightLogs = allWeightLogs,
+                        latestWeight = latestWeight,
+                        sevenDayAverageWeight = sevenDayAverageWeight,
+                        weeklyWeightDelta = weeklyWeightDelta,
+                        onLogWeightClick = {
+                            weightLogToEdit = null
+                            showWeightDialog = true
+                        },
+                        onEditWeight = { entry ->
+                            weightLogToEdit = entry
+                            showWeightDialog = true
+                        },
+                        onDeleteWeight = { entry ->
+                            weightLogToDelete = entry
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -403,6 +419,74 @@ fun NutritionScreen(
             onSave = { saved ->
                 viewModel.saveMeal(saved)
                 showStapleEditorDialog = false
+            }
+        )
+    }
+
+    // --- STAPLE DELETE CONFIRMATION ---
+    stapleToDelete?.let { staple ->
+        AlertDialog(
+            onDismissRequest = { stapleToDelete = null },
+            title = { Text("Delete Staple") },
+            text = { Text("Are you sure you want to remove '${staple.name}' from your saved staples?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteSavedMeal(staple.id)
+                        stapleToDelete = null
+                        Toast.makeText(context, "Deleted staple", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { stapleToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // --- WEIGHT LOG / EDIT DIALOG ---
+    if (showWeightDialog) {
+        WeightLogDialog(
+            initialEntry = weightLogToEdit,
+            defaultDateIso = selectedDateIso,
+            onDismiss = {
+                showWeightDialog = false
+                weightLogToEdit = null
+            },
+            onSave = { weight, unit, dateIso, note ->
+                viewModel.logWeight(weight = weight, unit = unit, dateIso = dateIso, note = note)
+                showWeightDialog = false
+                weightLogToEdit = null
+                Toast.makeText(context, "Logged weight: $weight ${unit.name.lowercase()}", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // --- WEIGHT ENTRY DELETE CONFIRMATION ---
+    weightLogToDelete?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { weightLogToDelete = null },
+            title = { Text("Delete Weight Entry") },
+            text = { Text("Are you sure you want to delete the weigh-in from ${entry.dateIso} (${entry.weight} ${entry.unit.name.lowercase()})?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteWeight(entry.id)
+                        weightLogToDelete = null
+                        Toast.makeText(context, "Deleted weigh-in", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { weightLogToDelete = null }) {
+                    Text("Cancel")
+                }
             }
         )
     }
@@ -549,71 +633,148 @@ fun NutritionScreen(
 }
 
 // -------------------------------------------------------------------------
-// DATE NAVIGATION STRIP
+// TAB 0: DAILY LOG VIEW
 // -------------------------------------------------------------------------
 @Composable
-private fun DateNavigationStrip(
+private fun DailyLogView(
     selectedDateIso: String,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onToday: () -> Unit
+    goals: NutritionGoals,
+    totals: DayNutritionTotals,
+    dayLogs: List<FoodLogEntry>,
+    savedMeals: List<SavedMeal>,
+    currentDayWeight: WeightLogEntry?,
+    onPreviousDay: () -> Unit,
+    onNextDay: () -> Unit,
+    onToday: () -> Unit,
+    onScanClick: () -> Unit,
+    onQuickAddClick: () -> Unit,
+    onManageStaplesClick: () -> Unit,
+    onNewStapleClick: () -> Unit,
+    onLogStaple: (SavedMeal) -> Unit,
+    onAddSlotEntry: (MealSlot) -> Unit,
+    onEntryClick: (FoodLogEntry) -> Unit,
+    onDeleteEntry: (FoodLogEntry) -> Unit,
+    onWeightClick: () -> Unit
 ) {
-    val selectedDate = remember(selectedDateIso) {
-        runCatching { LocalDate.parse(selectedDateIso) }.getOrDefault(LocalDate.now())
-    }
-    val today = remember { LocalDate.now() }
-
-    val displayText = remember(selectedDate) {
-        when (selectedDate) {
-            today -> "Today, ${selectedDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
-            today.minusDays(1) -> "Yesterday, ${selectedDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
-            today.plusDays(1) -> "Tomorrow, ${selectedDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
-            else -> selectedDate.format(DateTimeFormatter.ofPattern("EEE, MMM d, yyyy"))
-        }
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // --- DATE STRIP ---
+        DateNavigationStrip(
+            selectedDateIso = selectedDateIso,
+            onPrevious = onPreviousDay,
+            onNext = onNextDay,
+            onToday = onToday
+        )
+
+        // --- UNIFIED SUMMARY CARD (CALORIES + MACROS + WEIGHT PILL) ---
+        UnifiedDailySummaryCard(
+            goals = goals,
+            totals = totals,
+            currentDayWeight = currentDayWeight,
+            onWeightClick = onWeightClick
+        )
+
+        // --- 2 CLEAN ACTION BUTTONS (AI SCAN & QUICK ADD) ---
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            IconButton(onClick = onPrevious) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Day")
+            FilledTonalButton(
+                onClick = onScanClick,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("AI Scan", maxLines = 1, fontWeight = FontWeight.SemiBold)
             }
 
-            Surface(
-                onClick = onToday,
-                shape = RoundedCornerShape(16.dp),
-                color = if (selectedDate == today) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+            Button(
+                onClick = onQuickAddClick,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Quick Add", maxLines = 1, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        // --- QUICK STAPLES CAROUSEL (1-TAP PILLS) ---
+        val pinnedStaples = savedMeals.filter { it.isPinnedStaple }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = displayText,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    text = "Quick Staples",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
                 )
+                TextButton(
+                    onClick = onManageStaplesClick,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                ) {
+                    Text("Manage All (${savedMeals.size})", style = MaterialTheme.typography.labelMedium)
+                }
             }
 
-            IconButton(onClick = onNext) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Day")
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(pinnedStaples, key = { it.id }) { staple ->
+                    AssistChip(
+                        onClick = { onLogStaple(staple) },
+                        label = { Text("+ ${staple.name} · ${staple.calories}") }
+                    )
+                }
+                item {
+                    AssistChip(
+                        onClick = onNewStapleClick,
+                        label = { Text("+ New Staple") }
+                    )
+                }
             }
         }
+
+        // --- TODAY'S LOG (BY MEAL SLOT) ---
+        Text(
+            text = "Today's Log",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+
+        MealSlot.entries.forEach { slot ->
+            val entriesForSlot = dayLogs.filter { it.mealSlot == slot }
+            MealSlotCard(
+                slot = slot,
+                entries = entriesForSlot,
+                onAddClick = { onAddSlotEntry(slot) },
+                onEntryClick = onEntryClick,
+                onDeleteEntry = onDeleteEntry
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
 // -------------------------------------------------------------------------
-// MACRO OVERVIEW CARD
+// UNIFIED DAILY SUMMARY CARD
 // -------------------------------------------------------------------------
 @Composable
-private fun MacroOverviewCard(
-    goals: com.mateoviscarra.doitall.data.NutritionGoals,
-    totals: com.mateoviscarra.doitall.data.DayNutritionTotals
+private fun UnifiedDailySummaryCard(
+    goals: NutritionGoals,
+    totals: DayNutritionTotals,
+    currentDayWeight: WeightLogEntry?,
+    onWeightClick: () -> Unit
 ) {
     val calRemaining = (goals.calorieTarget - totals.totalCalories).coerceAtLeast(0)
     val calProgress = (totals.totalCalories.toFloat() / goals.calorieTarget.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
@@ -626,7 +787,7 @@ private fun MacroOverviewCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Calories Row
             Row(
@@ -700,7 +861,625 @@ private fun MacroOverviewCard(
                     modifier = Modifier.weight(1f)
                 )
             }
+
+            // Daily Weight Pill Row
+            Surface(
+                onClick = onWeightClick,
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.MonitorWeight,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        if (currentDayWeight != null) {
+                            Text(
+                                text = "Weight: ${currentDayWeight.weight} ${currentDayWeight.unit.name.lowercase()}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (currentDayWeight.note.isNotBlank()) {
+                                Text(
+                                    text = " • ${currentDayWeight.note}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "+ Log Weight for this day",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Icon(
+                        imageVector = if (currentDayWeight != null) Icons.Default.Edit else Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
+    }
+}
+
+// -------------------------------------------------------------------------
+// TAB 1: STAPLES MANAGEMENT VIEW
+// -------------------------------------------------------------------------
+@Composable
+private fun StaplesManagementView(
+    savedMeals: List<SavedMeal>,
+    onNewStapleClick: () -> Unit,
+    onEditStaple: (SavedMeal) -> Unit,
+    onDeleteStaple: (SavedMeal) -> Unit,
+    onTogglePin: (String) -> Unit,
+    onLogStapleToToday: (SavedMeal) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filtered = remember(savedMeals, searchQuery) {
+        if (searchQuery.isBlank()) savedMeals
+        else savedMeals.filter {
+            it.name.contains(searchQuery, ignoreCase = true) ||
+            it.servingDescription.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Search bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Search saved staples...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        // Header with count & Add button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Saved Meals (${filtered.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Button(
+                onClick = onNewStapleClick,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("New Staple")
+            }
+        }
+
+        if (filtered.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = null,
+                        modifier = Modifier.size(36.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = if (searchQuery.isNotBlank()) "No staples match '$searchQuery'" else "No saved staples yet",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Save your regular foods (like Overnight Oats or Protein Alfajor) for fast 1-tap logging.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(filtered, key = { it.id }) { staple ->
+                    StapleManagementCard(
+                        staple = staple,
+                        onLogToToday = { onLogStapleToToday(staple) },
+                        onTogglePin = { onTogglePin(staple.id) },
+                        onEdit = { onEditStaple(staple) },
+                        onDelete = { onDeleteStaple(staple) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StapleManagementCard(
+    staple: SavedMeal,
+    onLogToToday: () -> Unit,
+    onTogglePin: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = staple.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                IconButton(onClick = onTogglePin, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = if (staple.isPinnedStaple) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = "Pin to 1-tap list",
+                        tint = if (staple.isPinnedStaple) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Text(
+                text = "${staple.calories} kcal • ${staple.proteinGrams.toInt()}g P • ${staple.carbsGrams.toInt()}g C • ${staple.fatGrams.toInt()}g F",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            if (staple.servingDescription.isNotBlank()) {
+                Text(
+                    text = "${staple.servingDescription} • Default: ${staple.defaultMealSlot.displayName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledTonalButton(
+                    onClick = onLogToToday,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Log to Today")
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// TAB 2: WEIGHT & TRENDS VIEW
+// -------------------------------------------------------------------------
+@Composable
+private fun WeightAndTrendsView(
+    allWeightLogs: List<WeightLogEntry>,
+    latestWeight: WeightLogEntry?,
+    sevenDayAverageWeight: Float?,
+    weeklyWeightDelta: Float?,
+    onLogWeightClick: () -> Unit,
+    onEditWeight: (WeightLogEntry) -> Unit,
+    onDeleteWeight: (WeightLogEntry) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 3 Metric Cards: Latest | 7-Day Avg | Weekly Delta
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Latest
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text("Latest", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = latestWeight?.let { "${it.weight} ${it.unit.name.lowercase()}" } ?: "—",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = latestWeight?.let { formatWeightDate(it.dateIso) } ?: "No logs",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            // 7-Day Average
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text("7-Day Avg", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = sevenDayAverageWeight?.let { String.format(Locale.US, "%.1f", it) + " ${latestWeight?.unit?.name?.lowercase() ?: "kg"}" } ?: "—",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text("Moving avg", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            // Weekly Trend
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                val delta = weeklyWeightDelta
+                val deltaText = if (delta != null) {
+                    val abs = String.format(Locale.US, "%.1f", kotlin.math.abs(delta))
+                    if (delta < -0.05f) "▼ -$abs"
+                    else if (delta > 0.05f) "▲ +$abs"
+                    else "0.0 kg"
+                } else "—"
+
+                val deltaColor = if (delta != null) {
+                    if (delta < -0.05f) Color(0xFF4CAF50)
+                    else if (delta > 0.05f) Color(0xFFFF9800)
+                    else MaterialTheme.colorScheme.primary
+                } else MaterialTheme.colorScheme.onSurfaceVariant
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text("Weekly Trend", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = deltaText,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = deltaColor
+                    )
+                    Text("vs prior week", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        // Full width Log Bodyweight Button
+        Button(
+            onClick = onLogWeightClick,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Log Bodyweight")
+        }
+
+        // Weight History List
+        Text(
+            text = "Weight History (${allWeightLogs.size})",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+
+        if (allWeightLogs.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MonitorWeight,
+                        contentDescription = null,
+                        modifier = Modifier.size(36.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "No weigh-ins logged yet",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Regular daily or weekly weigh-ins will calculate your 7-day moving average and trend.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(allWeightLogs, key = { it.id }) { entry ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = formatWeightDate(entry.dateIso),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (entry.note.isNotBlank()) {
+                                    Text(
+                                        text = entry.note,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${entry.weight} ${entry.unit.name.lowercase()}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(onClick = { onEditWeight(entry) }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
+                                }
+                                IconButton(onClick = { onDeleteWeight(entry) }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// WEIGHT LOG DIALOG
+// -------------------------------------------------------------------------
+@Composable
+private fun WeightLogDialog(
+    initialEntry: WeightLogEntry?,
+    defaultDateIso: String,
+    onDismiss: () -> Unit,
+    onSave: (weight: Float, unit: WeightUnit, dateIso: String, note: String) -> Unit
+) {
+    var weightText by remember { mutableStateOf(initialEntry?.weight?.toString() ?: "") }
+    var selectedUnit by remember { mutableStateOf(initialEntry?.unit ?: WeightUnit.KG) }
+    var dateIso by remember { mutableStateOf(initialEntry?.dateIso ?: defaultDateIso) }
+    var note by remember { mutableStateOf(initialEntry?.note ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initialEntry == null) "Log Bodyweight" else "Edit Bodyweight") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = dateIso,
+                    onValueChange = { dateIso = it },
+                    label = { Text("Date (YYYY-MM-DD)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = weightText,
+                        onValueChange = { weightText = it },
+                        label = { Text("Weight") },
+                        placeholder = { Text("e.g. 76.4") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FilterChip(
+                            selected = selectedUnit == WeightUnit.KG,
+                            onClick = { selectedUnit = WeightUnit.KG },
+                            label = { Text("kg") }
+                        )
+                        FilterChip(
+                            selected = selectedUnit == WeightUnit.LBS,
+                            onClick = { selectedUnit = WeightUnit.LBS },
+                            label = { Text("lbs") }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Note (optional)") },
+                    placeholder = { Text("e.g. Morning, fasted") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val w = weightText.toFloatOrNull()
+                    if (w != null && w > 0f && dateIso.isNotBlank()) {
+                        onSave(w, selectedUnit, dateIso.trim(), note.trim())
+                    }
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+// -------------------------------------------------------------------------
+// DATE NAVIGATION STRIP
+// -------------------------------------------------------------------------
+@Composable
+private fun DateNavigationStrip(
+    selectedDateIso: String,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onToday: () -> Unit
+) {
+    val selectedDate = remember(selectedDateIso) {
+        runCatching { LocalDate.parse(selectedDateIso) }.getOrDefault(LocalDate.now())
+    }
+    val today = remember { LocalDate.now() }
+
+    val displayText = remember(selectedDate) {
+        when (selectedDate) {
+            today -> "Today, ${selectedDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
+            today.minusDays(1) -> "Yesterday, ${selectedDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
+            today.plusDays(1) -> "Tomorrow, ${selectedDate.format(DateTimeFormatter.ofPattern("MMM d"))}"
+            else -> selectedDate.format(DateTimeFormatter.ofPattern("EEE, MMM d, yyyy"))
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(onClick = onPrevious) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Day")
+            }
+
+            Surface(
+                onClick = onToday,
+                shape = RoundedCornerShape(16.dp),
+                color = if (selectedDate == today) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+            ) {
+                Text(
+                    text = displayText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+
+            IconButton(onClick = onNext) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Day")
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// HELPER: DATE FORMATTING FOR WEIGHT
+// -------------------------------------------------------------------------
+private fun formatWeightDate(dateIso: String): String {
+    val date = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return dateIso
+    val today = LocalDate.now()
+    return when (date) {
+        today -> "Today (${date.format(DateTimeFormatter.ofPattern("MMM d"))})"
+        today.minusDays(1) -> "Yesterday (${date.format(DateTimeFormatter.ofPattern("MMM d"))})"
+        else -> date.format(DateTimeFormatter.ofPattern("EEE, MMM d"))
     }
 }
 
@@ -748,101 +1527,6 @@ private fun MacroColumnItem(
                 .height(4.dp)
                 .clip(RoundedCornerShape(2.dp))
         )
-    }
-}
-
-// -------------------------------------------------------------------------
-// STAPLE CARD
-// -------------------------------------------------------------------------
-@Composable
-private fun StapleCard(
-    staple: SavedMeal,
-    onLogClick: () -> Unit,
-    onEditClick: () -> Unit,
-    onDeleteClick: () -> Unit
-) {
-    var menuExpanded by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier.width(180.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = staple.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
-                )
-
-                Box {
-                    IconButton(
-                        onClick = { menuExpanded = true },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Menu", modifier = Modifier.size(16.dp))
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Edit") },
-                            onClick = {
-                                menuExpanded = false
-                                onEditClick()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete") },
-                            onClick = {
-                                menuExpanded = false
-                                onDeleteClick()
-                            }
-                        )
-                    }
-                }
-            }
-
-            Text(
-                text = "${staple.calories} kcal • ${staple.proteinGrams.toInt()}g P",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            if (staple.servingDescription.isNotBlank()) {
-                Text(
-                    text = staple.servingDescription,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
-            }
-
-            Button(
-                onClick = onLogClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(32.dp),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Log", fontSize = 12.sp)
-            }
-        }
     }
 }
 

@@ -44,28 +44,31 @@ fun WorkoutListScreen(
     onSettingsClick: () -> Unit,
     onCustomClick: () -> Unit,
     onEditRoutineClick: (dayIndex: Int) -> Unit,
-    onNewRoutineClick: () -> Unit
+    onNewRoutineClick: () -> Unit,
+    showHeader: Boolean = true
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Workouts",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                actions = {
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings"
+            if (showHeader) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Workouts",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
                         )
+                    },
+                    actions = {
+                        IconButton(onClick = onSettingsClick) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings"
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     ) { innerPadding ->
         LazyColumn(

@@ -78,7 +78,8 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(
     onBack: (() -> Unit)? = null,
-    viewModel: HistoryViewModel = viewModel()
+    viewModel: HistoryViewModel = viewModel(),
+    showHeader: Boolean = true
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val sessions by viewModel.sessions.collectAsStateWithLifecycle()
@@ -91,19 +92,21 @@ fun HistoryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("History & PRs", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
-                            )
+            if (showHeader) {
+                TopAppBar(
+                    title = { Text("History & PRs", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        if (onBack != null) {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back"
+                                )
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
     ) { innerPadding ->
         Column(

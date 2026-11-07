@@ -65,7 +65,7 @@ fun WorkoutApp(
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val isTopLevelRoute = currentRoute in listOf(ROUTE_WORKOUTS, ROUTE_EXERCISES, ROUTE_HISTORY, ROUTE_NUTRITION)
+    val isTopLevelRoute = currentRoute in listOf(ROUTE_WORKOUTS, ROUTE_NUTRITION)
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -79,38 +79,6 @@ fun WorkoutApp(
                         onClick = {
                             if (currentRoute != ROUTE_WORKOUTS) {
                                 navController.navigate(ROUTE_WORKOUTS) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        }
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = "Exercises") },
-                        label = { Text("Exercises") },
-                        selected = currentRoute == ROUTE_EXERCISES,
-                        onClick = {
-                            if (currentRoute != ROUTE_EXERCISES) {
-                                navController.navigate(ROUTE_EXERCISES) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        }
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Default.History, contentDescription = "History & PRs") },
-                        label = { Text("History & PRs") },
-                        selected = currentRoute == ROUTE_HISTORY,
-                        onClick = {
-                            if (currentRoute != ROUTE_HISTORY) {
-                                navController.navigate(ROUTE_HISTORY) {
                                     popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
                                     }
@@ -146,8 +114,9 @@ fun WorkoutApp(
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(ROUTE_WORKOUTS) {
-                WorkoutListScreen(
+                WorkoutsScreen(
                     workoutDays = legacyPlan.schedule,
+                    categories = plan.categories,
                     onDaySelected = { index ->
                         navController.navigate(workoutDetailRoute(index))
                     },
@@ -162,6 +131,21 @@ fun WorkoutApp(
                     },
                     onNewRoutineClick = {
                         navController.navigate(routineEditorRoute(-1))
+                    },
+                    onAddExercise = { categoryId, exercise ->
+                        viewModel.addExerciseToCategory(categoryId, exercise)
+                    },
+                    onEditExercise = { categoryId, exercise ->
+                        viewModel.editExerciseInCategory(categoryId, exercise)
+                    },
+                    onDeleteExercise = { categoryId, exerciseId ->
+                        viewModel.deleteExerciseFromCategory(categoryId, exerciseId)
+                    },
+                    onAddCategory = { name ->
+                        viewModel.addCategory(name)
+                    },
+                    onDeleteCategory = { categoryId ->
+                        viewModel.deleteCategory(categoryId)
                     }
                 )
             }

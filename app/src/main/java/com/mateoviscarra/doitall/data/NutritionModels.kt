@@ -1,5 +1,6 @@
 package com.mateoviscarra.doitall.data
 
+import com.mateoviscarra.doitall.data.persist.WeightUnit
 import java.util.UUID
 
 enum class MealSlot(val displayName: String) {
@@ -54,6 +55,14 @@ data class NutritionGoals(
     val proteinTargetGrams: Float = 180f,
     val carbsTargetGrams: Float = 250f,
     val fatTargetGrams: Float = 70f
+)
+
+data class WeightLogEntry(
+    val id: String = UUID.randomUUID().toString(),
+    val dateIso: String,           // "YYYY-MM-DD"
+    val weight: Float,             // e.g. 76.4
+    val unit: WeightUnit = WeightUnit.KG,
+    val note: String = ""
 )
 
 data class DayNutritionTotals(

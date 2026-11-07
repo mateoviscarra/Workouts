@@ -76,6 +76,19 @@ class DataBackupManager(private val context: Context) {
         return sb.toString()
     }
 
+    fun exportWeightHistoryCsv(): String {
+        val weights = nutritionRepo.weightLogs.value
+        val sb = StringBuilder()
+        sb.append("Date,Weight,Unit,Note\n")
+        weights.forEach { w ->
+            sb.append("\"${w.dateIso}\",")
+            sb.append("${w.weight},")
+            sb.append("\"${w.unit.name}\",")
+            sb.append("\"${w.note.replace("\"", "\"\"")}\"\n")
+        }
+        return sb.toString()
+    }
+
     fun exportWorkoutHistoryCsv(): String {
         val sessions = historyRepo.sessions.value
         val sb = StringBuilder()
