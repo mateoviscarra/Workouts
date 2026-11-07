@@ -127,7 +127,13 @@ class NutritionRepository(
         }
 
         // AI Prompt & API Key
-        _aiPrompt.value = prefs.getString(KEY_AI_PROMPT, DEFAULT_NUTRITION_AI_PROMPT) ?: DEFAULT_NUTRITION_AI_PROMPT
+        val savedPrompt = prefs.getString(KEY_AI_PROMPT, null)
+        _aiPrompt.value = if (savedPrompt.isNullOrBlank() || !savedPrompt.contains("mealName")) {
+            prefs.edit().putString(KEY_AI_PROMPT, DEFAULT_NUTRITION_AI_PROMPT).apply()
+            DEFAULT_NUTRITION_AI_PROMPT
+        } else {
+            savedPrompt
+        }
         _geminiApiKey.value = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
     }
 

@@ -1,13 +1,17 @@
 package com.mateoviscarra.doitall.ui
 
 import android.content.Context
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +30,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -73,6 +78,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -84,8 +90,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -1122,196 +1139,655 @@ private fun WeightAndTrendsView(
     onEditWeight: (WeightLogEntry) -> Unit,
     onDeleteWeight: (WeightLogEntry) -> Unit
 ) {
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 3 Metric Cards: Latest | 7-Day Avg | Weekly Delta
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Latest
-            Card(
-                modifier = Modifier.weight(1f),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text("Latest", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        text = latestWeight?.let { "${it.weight} ${it.unit.name.lowercase()}" } ?: "—",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = latestWeight?.let { formatWeightDate(it.dateIso) } ?: "No logs",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
-                }
-            }
-
-            // 7-Day Average
-            Card(
-                modifier = Modifier.weight(1f),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text("7-Day Avg", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        text = sevenDayAverageWeight?.let { String.format(Locale.US, "%.1f", it) + " ${latestWeight?.unit?.name?.lowercase() ?: "kg"}" } ?: "—",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text("Moving avg", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-
-            // Weekly Trend
-            Card(
-                modifier = Modifier.weight(1f),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                val delta = weeklyWeightDelta
-                val deltaText = if (delta != null) {
-                    val abs = String.format(Locale.US, "%.1f", kotlin.math.abs(delta))
-                    if (delta < -0.05f) "▼ -$abs"
-                    else if (delta > 0.05f) "▲ +$abs"
-                    else "0.0 kg"
-                } else "—"
-
-                val deltaColor = if (delta != null) {
-                    if (delta < -0.05f) Color(0xFF4CAF50)
-                    else if (delta > 0.05f) Color(0xFFFF9800)
-                    else MaterialTheme.colorScheme.primary
-                } else MaterialTheme.colorScheme.onSurfaceVariant
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text("Weekly Trend", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        text = deltaText,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = deltaColor
-                    )
-                    Text("vs prior week", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-
-        // Full width Log Bodyweight Button
-        Button(
-            onClick = onLogWeightClick,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Log Bodyweight")
-        }
-
-        // Weight History List
-        Text(
-            text = "Weight History (${allWeightLogs.size})",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-
-        if (allWeightLogs.isEmpty()) {
-            Card(
+        // 1. Top 3 Metric Cards: Latest | 7-Day Avg | Weekly Delta
+        item {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                // Latest
+                Card(
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MonitorWeight,
-                        contentDescription = null,
-                        modifier = Modifier.size(36.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text("Latest", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = latestWeight?.let { "${it.weight} ${it.unit.name.lowercase()}" } ?: "—",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = latestWeight?.let { formatWeightDate(it.dateIso) } ?: "No logs",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                // 7-Day Average
+                Card(
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text("7-Day Avg", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = sevenDayAverageWeight?.let { String.format(Locale.US, "%.1f", it) + " ${latestWeight?.unit?.name?.lowercase() ?: "kg"}" } ?: "—",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text("Moving avg", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                // Weekly Trend
+                Card(
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    val delta = weeklyWeightDelta
+                    val deltaText = if (delta != null) {
+                        val abs = String.format(Locale.US, "%.1f", kotlin.math.abs(delta))
+                        if (delta < -0.05f) "▼ -$abs"
+                        else if (delta > 0.05f) "▲ +$abs"
+                        else "0.0 kg"
+                    } else "—"
+
+                    val deltaColor = if (delta != null) {
+                        if (delta < -0.05f) Color(0xFF4CAF50)
+                        else if (delta > 0.05f) Color(0xFFFF9800)
+                        else MaterialTheme.colorScheme.primary
+                    } else MaterialTheme.colorScheme.onSurfaceVariant
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text("Weekly Trend", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = deltaText,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = deltaColor
+                        )
+                        Text("vs prior week", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+
+        // 2. Weight Trend Chart Card (Interactive Line Graph)
+        item {
+            WeightTrendChartCard(allLogs = allWeightLogs)
+        }
+
+        // 3. Full width Log Bodyweight Button
+        item {
+            Button(
+                onClick = onLogWeightClick,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Log Bodyweight")
+            }
+        }
+
+        // 4. Weight History Section Header
+        item {
+            Text(
+                text = "Weight History (${allWeightLogs.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // 5. Weight History Items / Empty State
+        if (allWeightLogs.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MonitorWeight,
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "No weigh-ins logged yet",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Regular daily or weekly weigh-ins will calculate your 7-day moving average and trend.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            items(allWeightLogs, key = { it.id }) { entry ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = formatWeightDate(entry.dateIso),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (entry.note.isNotBlank()) {
+                                Text(
+                                    text = entry.note,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${entry.weight} ${entry.unit.name.lowercase()}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(onClick = { onEditWeight(entry) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
+                            }
+                            IconButton(onClick = { onDeleteWeight(entry) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// WEIGHT TREND CHART CARD (CANVAS LINE GRAPH WITH 7-DAY MOVING AVERAGE)
+// -------------------------------------------------------------------------
+private enum class WeightChartRange(val label: String, val days: Long?) {
+    ONE_MONTH("1M", 30L),
+    THREE_MONTHS("3M", 90L),
+    ALL("All", null)
+}
+
+private data class ChartPoint(
+    val entry: WeightLogEntry,
+    val date: LocalDate,
+    val weight: Float,
+    val movingAverage: Float?
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WeightTrendChartCard(
+    allLogs: List<WeightLogEntry>,
+    modifier: Modifier = Modifier
+) {
+    var selectedRange by remember { mutableStateOf(WeightChartRange.ONE_MONTH) }
+    var selectedIndex by remember { mutableStateOf<Int?>(null) }
+
+    val cutoffDate = remember(selectedRange) {
+        selectedRange.days?.let { days ->
+            LocalDate.now().minusDays(days).toString()
+        }
+    }
+
+    val sortedLogs = remember(allLogs) {
+        allLogs.sortedBy { it.dateIso }
+    }
+
+    val chartPoints = remember(sortedLogs, cutoffDate) {
+        val windowed = if (cutoffDate != null) {
+            sortedLogs.filter { it.dateIso >= cutoffDate }
+        } else {
+            sortedLogs
+        }
+
+        windowed.map { currentLog ->
+            val currentDate = runCatching { LocalDate.parse(currentLog.dateIso) }.getOrNull() ?: LocalDate.now()
+            val window = sortedLogs.filter {
+                val d = runCatching { LocalDate.parse(it.dateIso) }.getOrNull()
+                d != null && !d.isAfter(currentDate) && !d.isBefore(currentDate.minusDays(6))
+            }
+            val avg = if (window.isNotEmpty()) window.map { it.weight }.average().toFloat() else null
+            ChartPoint(
+                entry = currentLog,
+                date = currentDate,
+                weight = currentLog.weight,
+                movingAverage = avg
+            )
+        }
+    }
+
+    // Reset inspection index when chart points list changes
+    LaunchedEffect(chartPoints.size) {
+        selectedIndex = null
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Header Row: Title & Range Selector Chips
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Weight Trend",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    WeightChartRange.entries.forEach { r ->
+                        FilterChip(
+                            selected = selectedRange == r,
+                            onClick = { selectedRange = r },
+                            label = { Text(r.label, fontSize = 12.sp) },
+                            modifier = Modifier.height(28.dp)
+                        )
+                    }
+                }
+            }
+
+            // Legend Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
                     )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "No weigh-ins logged yet",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        text = "Daily Weight",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .width(14.dp)
+                            .height(3.dp)
+                            .background(Color(0xFFFFA726), RoundedCornerShape(1.dp))
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Regular daily or weekly weigh-ins will calculate your 7-day moving average and trend.",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "7-Day Avg",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(allWeightLogs, key = { it.id }) { entry ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+
+            if (chartPoints.size < 2) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = if (allLogs.isEmpty()) "Log at least 2 weigh-ins to plot your weight graph"
+                            else "Not enough weigh-ins in this time window",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                // Interactive inspection pill
+                val inspected = selectedIndex?.let { chartPoints.getOrNull(it) }
+                if (inspected != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = formatWeightDate(entry.dateIso),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (entry.note.isNotBlank()) {
-                                    Text(
-                                        text = entry.note,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
+                            Text(
+                                text = formatWeightDate(inspected.entry.dateIso),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "${entry.weight} ${entry.unit.name.lowercase()}",
-                                    style = MaterialTheme.typography.titleMedium,
+                                    text = "${inspected.weight} ${inspected.entry.unit.name.lowercase()}",
+                                    style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                IconButton(onClick = { onEditWeight(entry) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
+                                inspected.movingAverage?.let { avg ->
+                                    Text(
+                                        text = " (7d: ${String.format(Locale.US, "%.1f", avg)})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
-                                IconButton(onClick = { onDeleteWeight(entry) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = { selectedIndex = null },
+                                    modifier = Modifier.size(18.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Clear",
+                                        modifier = Modifier.size(14.dp)
+                                    )
                                 }
                             }
                         }
+                    }
+                }
+
+                // Range bounds calculation
+                val allWeights = chartPoints.map { it.weight } + chartPoints.mapNotNull { it.movingAverage }
+                val rawMin = allWeights.minOrNull() ?: 70f
+                val rawMax = allWeights.maxOrNull() ?: 75f
+                val padding = ((rawMax - rawMin) * 0.15f).coerceAtLeast(1.0f)
+                val minY = rawMin - padding
+                val maxY = rawMax + padding
+                val rangeY = (maxY - minY).coerceAtLeast(1f)
+
+                val primaryColor = MaterialTheme.colorScheme.primary
+                val surfaceColor = MaterialTheme.colorScheme.surface
+                val outlineColor = MaterialTheme.colorScheme.outlineVariant
+                val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+                val density = LocalDensity.current
+
+                val textPaint = remember(onSurfaceVariant) {
+                    Paint().apply {
+                        color = onSurfaceVariant.toArgb()
+                        isAntiAlias = true
+                        textSize = with(density) { 10.sp.toPx() }
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                    }
+                }
+
+                val dayMonthFormatter = remember { DateTimeFormatter.ofPattern("MMM d", Locale.US) }
+
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(190.dp)
+                        .pointerInput(chartPoints) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    val leftP = 8.dp.toPx()
+                                    val rightP = 44.dp.toPx()
+                                    val w = (size.width - leftP - rightP).coerceAtLeast(1f)
+                                    val minE = chartPoints.first().date.toEpochDay()
+                                    val maxE = chartPoints.last().date.toEpochDay()
+                                    val span = (maxE - minE).coerceAtLeast(1L)
+                                    selectedIndex = chartPoints.indices.minByOrNull { i ->
+                                        val frac = (chartPoints[i].date.toEpochDay() - minE).toFloat() / span
+                                        val px = leftP + frac * w
+                                        kotlin.math.abs(px - offset.x)
+                                    }
+                                },
+                                onDrag = { change, _ ->
+                                    val leftP = 8.dp.toPx()
+                                    val rightP = 44.dp.toPx()
+                                    val w = (size.width - leftP - rightP).coerceAtLeast(1f)
+                                    val minE = chartPoints.first().date.toEpochDay()
+                                    val maxE = chartPoints.last().date.toEpochDay()
+                                    val span = (maxE - minE).coerceAtLeast(1L)
+                                    selectedIndex = chartPoints.indices.minByOrNull { i ->
+                                        val frac = (chartPoints[i].date.toEpochDay() - minE).toFloat() / span
+                                        val px = leftP + frac * w
+                                        kotlin.math.abs(px - change.position.x)
+                                    }
+                                }
+                            )
+                        }
+                ) {
+                    val leftPadding = 8.dp.toPx()
+                    val rightPadding = 44.dp.toPx()
+                    val topPadding = 12.dp.toPx()
+                    val bottomPadding = 20.dp.toPx()
+
+                    val chartWidth = (size.width - leftPadding - rightPadding).coerceAtLeast(1f)
+                    val chartHeight = (size.height - topPadding - bottomPadding).coerceAtLeast(1f)
+
+                    val minEpoch = chartPoints.first().date.toEpochDay()
+                    val maxEpoch = chartPoints.last().date.toEpochDay()
+                    val epochSpan = (maxEpoch - minEpoch).coerceAtLeast(1L)
+
+                    fun getPointX(date: LocalDate): Float {
+                        if (epochSpan == 0L || chartPoints.size <= 1) {
+                            return leftPadding + chartWidth / 2f
+                        }
+                        val fraction = (date.toEpochDay() - minEpoch).toFloat() / epochSpan
+                        return leftPadding + fraction * chartWidth
+                    }
+
+                    fun getPointY(weight: Float): Float {
+                        val fraction = ((weight - minY) / rangeY).coerceIn(0f, 1f)
+                        return topPadding + (1f - fraction) * chartHeight
+                    }
+
+                    // 1. Horizontal Reference Grid Lines (3 lines: min, mid, max)
+                    textPaint.textAlign = Paint.Align.LEFT
+                    for (step in 0..2) {
+                        val refWeight = minY + rangeY * (step / 2f)
+                        val refY = getPointY(refWeight)
+
+                        // Grid line
+                        drawLine(
+                            color = outlineColor.copy(alpha = 0.35f),
+                            start = Offset(leftPadding, refY),
+                            end = Offset(leftPadding + chartWidth, refY),
+                            strokeWidth = 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                        )
+
+                        // Y-axis label
+                        drawContext.canvas.nativeCanvas.drawText(
+                            String.format(Locale.US, "%.1f", refWeight),
+                            leftPadding + chartWidth + 6.dp.toPx(),
+                            refY + 4f,
+                            textPaint
+                        )
+                    }
+
+                    // 2. Date Labels on Bottom X-axis
+                    val labelY = size.height - 2.dp.toPx()
+                    // First date (align left)
+                    textPaint.textAlign = Paint.Align.LEFT
+                    drawContext.canvas.nativeCanvas.drawText(
+                        chartPoints.first().date.format(dayMonthFormatter),
+                        leftPadding,
+                        labelY,
+                        textPaint
+                    )
+
+                    // Last date (align right)
+                    textPaint.textAlign = Paint.Align.RIGHT
+                    drawContext.canvas.nativeCanvas.drawText(
+                        chartPoints.last().date.format(dayMonthFormatter),
+                        leftPadding + chartWidth,
+                        labelY,
+                        textPaint
+                    )
+
+                    // Middle date if epochSpan >= 14
+                    if (epochSpan >= 14L && chartPoints.size >= 3) {
+                        textPaint.textAlign = Paint.Align.CENTER
+                        val midPoint = chartPoints[chartPoints.size / 2]
+                        drawContext.canvas.nativeCanvas.drawText(
+                            midPoint.date.format(dayMonthFormatter),
+                            getPointX(midPoint.date),
+                            labelY,
+                            textPaint
+                        )
+                    }
+
+                    // 3. Daily Weight Curve + Gradient Fill
+                    val linePath = Path()
+                    val areaPath = Path()
+
+                    chartPoints.forEachIndexed { i, p ->
+                        val px = getPointX(p.date)
+                        val py = getPointY(p.weight)
+                        if (i == 0) {
+                            linePath.moveTo(px, py)
+                            areaPath.moveTo(px, topPadding + chartHeight)
+                            areaPath.lineTo(px, py)
+                        } else {
+                            linePath.lineTo(px, py)
+                            areaPath.lineTo(px, py)
+                        }
+                    }
+
+                    val lastPx = getPointX(chartPoints.last().date)
+                    areaPath.lineTo(lastPx, topPadding + chartHeight)
+                    areaPath.close()
+
+                    // Gradient under line
+                    drawPath(
+                        path = areaPath,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(primaryColor.copy(alpha = 0.35f), Color.Transparent),
+                            startY = topPadding,
+                            endY = topPadding + chartHeight
+                        )
+                    )
+
+                    // Main weight line
+                    drawPath(
+                        path = linePath,
+                        color = primaryColor,
+                        style = Stroke(
+                            width = 2.5.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
+
+                    // 4. 7-Day Moving Average Line (dashed amber line)
+                    val avgPoints = chartPoints.filter { it.movingAverage != null }
+                    if (avgPoints.size >= 2) {
+                        val avgPath = Path()
+                        avgPoints.forEachIndexed { i, p ->
+                            val px = getPointX(p.date)
+                            val py = getPointY(p.movingAverage!!)
+                            if (i == 0) avgPath.moveTo(px, py) else avgPath.lineTo(px, py)
+                        }
+                        drawPath(
+                            path = avgPath,
+                            color = Color(0xFFFFA726),
+                            style = Stroke(
+                                width = 2.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), 0f),
+                                cap = StrokeCap.Round
+                            )
+                        )
+                    }
+
+                    // 5. Data Points (Circles)
+                    chartPoints.forEach { p ->
+                        val px = getPointX(p.date)
+                        val py = getPointY(p.weight)
+                        drawCircle(color = surfaceColor, radius = 4.5.dp.toPx(), center = Offset(px, py))
+                        drawCircle(color = primaryColor, radius = 3.dp.toPx(), center = Offset(px, py))
+                    }
+
+                    // 6. Selected Point Indicator
+                    if (selectedIndex != null && selectedIndex!! in chartPoints.indices) {
+                        val sel = chartPoints[selectedIndex!!]
+                        val sx = getPointX(sel.date)
+                        val sy = getPointY(sel.weight)
+
+                        // Vertical highlight line
+                        drawLine(
+                            color = primaryColor.copy(alpha = 0.6f),
+                            start = Offset(sx, topPadding),
+                            end = Offset(sx, topPadding + chartHeight),
+                            strokeWidth = 1.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f), 0f)
+                        )
+
+                        // Highlight halo
+                        drawCircle(color = primaryColor.copy(alpha = 0.25f), radius = 10.dp.toPx(), center = Offset(sx, sy))
+                        drawCircle(color = primaryColor, radius = 5.dp.toPx(), center = Offset(sx, sy))
                     }
                 }
             }
@@ -1972,6 +2448,7 @@ private fun ScanResultReviewDialog(
 ) {
     var multiplier by remember { mutableFloatStateOf(1.0f) }
     var name by remember(result.mealName) { mutableStateOf(result.mealName) }
+    var servingDesc by remember(result.servingDescription) { mutableStateOf(result.servingDescription) }
     var baseCalories by remember(result.calories) { mutableIntStateOf(result.calories) }
     var baseProtein by remember(result.proteinGrams) { mutableFloatStateOf(result.proteinGrams) }
     var baseCarbs by remember(result.carbsGrams) { mutableFloatStateOf(result.carbsGrams) }
@@ -2004,17 +2481,19 @@ private fun ScanResultReviewDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Meal Name") },
+                    placeholder = { Text("e.g. Silpancho, Oatmeal bowl") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                if (result.servingDescription.isNotBlank()) {
-                    Text(
-                        text = "Portion: ${result.servingDescription}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                OutlinedTextField(
+                    value = servingDesc,
+                    onValueChange = { servingDesc = it },
+                    label = { Text("Serving Description / Portion") },
+                    placeholder = { Text("e.g. 1 plate (~400g), 1 jar, 2 units") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 // Multiplier Chips
                 Text("Portion Multiplier", style = MaterialTheme.typography.labelMedium)
@@ -2102,13 +2581,13 @@ private fun ScanResultReviewDialog(
             Button(
                 onClick = {
                     onConfirm(
-                        name.trim(),
+                        name.trim().ifBlank { "Estimated Meal" },
                         currentCals,
                         currentProt,
                         currentCarbs,
                         currentFat,
                         selectedSlot,
-                        result.servingDescription,
+                        servingDesc.trim(),
                         multiplier,
                         saveAsStaple
                     )

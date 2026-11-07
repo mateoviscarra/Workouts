@@ -126,18 +126,19 @@ class GeminiVisionClient(private val context: Context) {
         // Contents
         val promptText = buildString {
             append("Analyze the provided image (food dish or nutrition facts label). Identify all foods and estimate calories, protein (g), carbs (g), and fat (g).")
+            append("\nIMPORTANT: Always guess and output a specific, meaningful name for the meal or dish in 'mealName' (e.g. 'Silpancho Cochabambino', 'Overnight Oats con Berries', 'Marraqueta con Huevo y Queso'), and an estimated portion size or serving description in 'servingDescription' (e.g. '1 plato (~400g)', '1 taza (~250g)', '2 unidades', '1 alfajor de 60g').")
             if (userNote.isNotBlank()) {
                 append("\nUser context / notes: ").append(userNote)
             }
             append("\nReturn strictly JSON with this schema:")
             append("""
                 {
-                  "mealName": "Name of dish or food item",
+                  "mealName": "Specific name of dish or food item",
+                  "servingDescription": "Estimated portion description (e.g. 1 plate, 250g, 1 unit)",
                   "calories": 0,
                   "proteinGrams": 0.0,
                   "carbsGrams": 0.0,
                   "fatGrams": 0.0,
-                  "servingDescription": "Estimated portion description (e.g. 1 plate, 250g, 1 unit)",
                   "items": [
                     { "name": "Item", "portion": "description", "calories": 0, "proteinGrams": 0.0, "carbsGrams": 0.0, "fatGrams": 0.0 }
                   ],
@@ -218,10 +219,77 @@ class GeminiVisionClient(private val context: Context) {
 
         val parsed = JSONObject(cleanedJson)
 
-        val mealName = parsed.optString("mealName", "").ifBlank {
-            parsed.optString("foodName", "").ifBlank {
-                parsed.optString("name", "Estimated Meal")
+        val itemsList = mutableListOf<FoodScanSubItem>()
+        val itemsArr = parsed.optJSONArray("items") ?: parsed.optJSONArray("detectedItems")
+        if (itemsArr != null) {
+            for (i in 0 until itemsArr.length()) {
+                val itemObj = itemsArr.getJSONObject(i)
+                val itemName = itemObj.optString("name", "").ifBlank {
+                    itemObj.optString("item", "")
+                }
+                val itemPortion = itemObj.optString("portion", "")
+                val itemCals = itemObj.optInt("calories", 0)
+                val itemProt = if (itemObj.has("proteinGrams")) {
+                    itemObj.optDouble("proteinGrams", 0.0).toFloat()
+                } else {
+                    itemObj.optDouble("protein", 0.0).toFloat()
+                }
+                val itemCarbs = if (itemObj.has("carbsGrams")) {
+                    itemObj.optDouble("carbsGrams", 0.0).toFloat()
+                } else {
+                    itemObj.optDouble("carbs", 0.0).toFloat()
+                }
+                val itemFat = if (itemObj.has("fatGrams")) {
+                    itemObj.optDouble("fatGrams", 0.0).toFloat()
+                } else {
+                    itemObj.optDouble("fat", 0.0).toFloat()
+                }
+
+                if (itemName.isNotBlank() || itemCals > 0) {
+                    itemsList.add(
+                        FoodScanSubItem(
+                            name = itemName.ifBlank { "Item" },
+                            portion = itemPortion,
+                            calories = itemCals,
+                            proteinGrams = itemProt,
+                            carbsGrams = itemCarbs,
+                            fatGrams = itemFat
+                        )
+                    )
+                }
             }
+        }
+
+        var mealName = parsed.optString("mealName", "").ifBlank {
+            parsed.optString("foodName", "").ifBlank {
+                parsed.optString("dishName", "").ifBlank {
+                    parsed.optString("name", "")
+                }
+            }
+        }
+        if (mealName.isBlank() || mealName.equals("Estimated Meal", ignoreCase = true)) {
+            if (itemsList.isNotEmpty() && itemsList.first().name.isNotBlank()) {
+                mealName = itemsList.first().name
+            } else {
+                mealName = "Estimated Meal"
+            }
+        }
+
+        var servingDescription = parsed.optString("servingDescription", "").ifBlank {
+            parsed.optString("portion", "").ifBlank {
+                parsed.optString("servingSize", "").ifBlank {
+                    parsed.optString("serving", "")
+                }
+            }
+        }
+        if (servingDescription.isBlank() && itemsList.isNotEmpty()) {
+            val validPortions = itemsList.mapNotNull { it.portion.ifBlank { null } }
+            if (validPortions.isNotEmpty()) {
+                servingDescription = validPortions.first()
+            }
+        }
+        if (servingDescription.isBlank()) {
+            servingDescription = "1 serving"
         }
 
         val calories = if (parsed.has("calories")) {
@@ -248,51 +316,8 @@ class GeminiVisionClient(private val context: Context) {
             parsed.optDouble("fat", 0.0).toFloat()
         }
 
-        val servingDescription = parsed.optString("servingDescription", "").ifBlank {
-            parsed.optString("portion", "")
-        }
-
         val notes = parsed.optString("notes", "").ifBlank {
             parsed.optString("note", "")
-        }
-
-        val itemsList = mutableListOf<FoodScanSubItem>()
-        val itemsArr = parsed.optJSONArray("items") ?: parsed.optJSONArray("detectedItems")
-        if (itemsArr != null) {
-            for (i in 0 until itemsArr.length()) {
-                val itemObj = itemsArr.getJSONObject(i)
-                val itemName = itemObj.optString("name", "").ifBlank {
-                    itemObj.optString("item", "Item")
-                }
-                val itemPortion = itemObj.optString("portion", "")
-                val itemCals = itemObj.optInt("calories", 0)
-                val itemProt = if (itemObj.has("proteinGrams")) {
-                    itemObj.optDouble("proteinGrams", 0.0).toFloat()
-                } else {
-                    itemObj.optDouble("protein", 0.0).toFloat()
-                }
-                val itemCarbs = if (itemObj.has("carbsGrams")) {
-                    itemObj.optDouble("carbsGrams", 0.0).toFloat()
-                } else {
-                    itemObj.optDouble("carbs", 0.0).toFloat()
-                }
-                val itemFat = if (itemObj.has("fatGrams")) {
-                    itemObj.optDouble("fatGrams", 0.0).toFloat()
-                } else {
-                    itemObj.optDouble("fat", 0.0).toFloat()
-                }
-
-                itemsList.add(
-                    FoodScanSubItem(
-                        name = itemName,
-                        portion = itemPortion,
-                        calories = itemCals,
-                        proteinGrams = itemProt,
-                        carbsGrams = itemCarbs,
-                        fatGrams = itemFat
-                    )
-                )
-            }
         }
 
         return FoodScanResult(
