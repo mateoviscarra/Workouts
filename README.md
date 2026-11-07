@@ -1,46 +1,46 @@
-# DoItAll
+# Workouts
 
-Android workout tracker with productivity timers and Google Calendar sync.
+A modern, offline-first Android workout and nutrition tracker built with Jetpack Compose, Material Design 3, and Gemini AI.
 
 ## Features
 
-### Workout Tracking
-- Hardcoded training plans (Push/Pull/Legs/Accessory)
-- Shows muscle groups trained each day
-- Alternative exercises that target similar muscles (carousel navigation)
-- Per-exercise logging: sets, reps, weight, comments
-- Bodyweight exercise support with optional added weight
-- Unit toggle: kg or lbs
+### Workout Tracking & Routine Editor
+- **Custom Routines & Splits**: Push/Pull/Legs, Upper/Lower, or full custom day splits.
+- **Exercise Library & Alternates**: Categorized catalog with carousel variations per exercise slot.
+- **Advanced Exercise Types**:
+  - Rep & weight logging with instant focus clear.
+  - Bodyweight exercises with positive or negative load (e.g. assisted pull-ups).
+  - Timed exercises (e.g. planks, isometric holds).
+  - Supersets (Alternating set-by-set or Sequential back-to-back).
+- **Session Progress**: Sticky progress indicator following as you scroll down workouts.
+- **Straps & Units**: Toggle straps usage and kg/lbs per exercise.
 
-### Timers & Productivity
-- **Timer types**: Productivity (60 min), Reading (60 min), Rest (2 min)
-- Productivity timer quick options: Guitar, Programming, Applying
-- Custom duration option
-- Long vibration toggle on completion
-- Notification on completion
-- **Only to Calendar mode**: Instantly log a session to Google Calendar without running a timer
-- When running a timer, calendar event is created at start time (not completion)
-- Rest timers do not create calendar events
+### History & Personal Records (PRs)
+- Comprehensive workout session history.
+- Automatic PR detection and tracking across movements.
+- Unified session finish flow.
+
+### Nutrition & Macro Tracking
+- Daily targets and real-time progress for **Calories**, **Protein**, **Carbs**, and **Fat**.
+- **1-Tap Staples Carousel**: Quick-log frequent meals and snacks (e.g. Overnight Oats, Protein Alfajores).
+- **Day Log by Meal Slot**: Breakfast, Lunch, Dinner, and Snacks breakdown.
+- **Gemini AI Vision Scanner**: Snap meal photos or nutrition labels for automated calorie and macro estimation, featuring customizable prompts with regional Bolivian cuisine localization.
+
+### Data Backup & Portability
+- **Unified Backup (JSON)**: Full export and one-click restore of routines, workout history, saved meals, and food logs.
+- **Spreadsheet Exports (CSV)**: Export dedicated CSV tables for both Nutrition and Workout History.
 
 ### Google Calendar Integration
-- Sync workouts to Google Calendar
-- Custom calendar selection
-- Calendar events include exercise details, weights, and reps
-- Secure credential storage on device
+- Sync workout logs to your selected Google Calendar.
+- Detailed event descriptions with sets, reps, and weights.
+- Credentials stored securely on-device.
 
-### Data Persistence
-- Exercise logs saved per day with shared exercise catalog
-- Carousel bindings (which exercise per slot) stored per day
-- Timer state persists across app restarts
-
-## Data Source
-
-Workout plan stored in `data/workout_plan.json`. On device, copied to `app/src/main/assets/workout_plan.json`.
-
-The app builds a **shared exercise catalog**: the same display name (case-insensitive) maps to one **stable id**, so a movement that appears on multiple days shares **one saved log** (sets, weight, reps, comment). Carousel **bindings** (which id each page uses) and **last page index** per slot are stored **per day** in DataStore (`WorkoutStateStore`, schema v2 key `workout_log_json_v2`).
+### Appearance
+- Dynamic Light, Dark, and System theme support with instant switching in Settings.
 
 ## Tech Stack
-- Kotlin + Jetpack Compose
-- DataStore for persistence
-- Google Calendar API
-- Material Design 3
+- **UI**: Jetpack Compose, Material 3, Navigation Compose
+- **Language**: Kotlin 1.9 / Coroutines / Flow
+- **AI**: Google Generative Language API (Gemini Vision)
+- **Storage**: SharedPreferences & Jetpack DataStore
+- **Integrations**: Google Calendar API & Google Sign-In
