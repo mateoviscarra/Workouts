@@ -82,17 +82,12 @@ fun defaultDayLog(day: WorkoutDay): DayLogState {
 fun normalizeSlotState(slot: WorkoutSlot, persisted: SlotLogState?): SlotLogState {
     val size = slot.exerciseIds.size
     val defaultBindings = slot.exerciseIds.toList()
-    if (persisted == null) {
+    if (persisted == null || persisted.pageBindings.size != size || persisted.pageBindings.toSet() != defaultBindings.toSet()) {
         return SlotLogState(selectedPage = 0, pageBindings = defaultBindings)
-    }
-    val allowed = slot.exerciseIds.toSet()
-    val bindings = List(size) { i ->
-        val p = persisted.pageBindings.getOrNull(i)
-        if (p != null && p in allowed) p else defaultBindings[i]
     }
     return SlotLogState(
         selectedPage = persisted.selectedPage.coerceIn(0, (size - 1).coerceAtLeast(0)),
-        pageBindings = bindings
+        pageBindings = persisted.pageBindings
     )
 }
 

@@ -333,23 +333,46 @@ private fun SessionCard(
             }
 
             // Quick Stats Row
+            val isCardioSession = session.dayTitle.equals("Cardio", ignoreCase = true) ||
+                (session.exercises.isNotEmpty() && session.exercises.all { it.isCardio })
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text(
-                    text = "${session.exercises.size} exercises",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                if (session.totalVolume > 0) {
+                if (isCardioSession) {
+                    val primaryCardio = session.exercises.firstOrNull()
+                    val summaryText = if (primaryCardio != null) {
+                        buildString {
+                            append(primaryCardio.exerciseName)
+                            append(" • ${session.durationMinutes} min")
+                            if (primaryCardio.weight.isNotBlank()) {
+                                append(" • ${primaryCardio.weight}")
+                            }
+                        }
+                    } else {
+                        "${session.durationMinutes} min"
+                    }
                     Text(
-                        text = "Volume: ${String.format(Locale.US, "%,.0f", session.totalVolume)}",
+                        text = summaryText,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
                     )
+                } else {
+                    Text(
+                        text = "${session.exercises.size} exercises • ${session.durationMinutes} min",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    if (session.totalVolume > 0) {
+                        Text(
+                            text = "Volume: ${String.format(Locale.US, "%,.0f", session.totalVolume)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -397,17 +420,30 @@ private fun ExerciseRowInSession(exercise: CompletedExerciseRecord) {
                 fontWeight = FontWeight.SemiBold
             )
 
-            val weightStr = formatExerciseWeight(
-                weight = exercise.weight,
-                isBodyweight = exercise.isBodyweight,
-                unitLabel = exercise.weightUnit.name.lowercase(),
-                shortBwPrefix = true
-            )
-
-            val details = buildString {
-                append("${exercise.sets} sets × ${exercise.repsSummary} reps")
-                if (weightStr.isNotBlank()) append(" @ $weightStr")
-                if (exercise.usesStraps) append(" (Straps)")
+            val details = if (exercise.isCardio) {
+                buildString {
+                    append(exercise.repsSummary.ifBlank { "Cardio" })
+                    if (exercise.weight.isNotBlank()) {
+                        append(" • ${exercise.weight}")
+                    }
+                }
+            } else {
+                val weightStr = formatExerciseWeight(
+                    weight = exercise.weight,
+                    isBodyweight = exercise.isBodyweight,
+                    unitLabel = exercise.weightUnit.name.lowercase(),
+                    shortBwPrefix = true
+                )
+                val isTimedFormat = exercise.repsSummary.any { it.isLetter() }
+                buildString {
+                    if (isTimedFormat) {
+                        append("${exercise.sets} sets × ${exercise.repsSummary}")
+                    } else {
+                        append("${exercise.sets} sets × ${exercise.repsSummary} reps")
+                    }
+                    if (weightStr.isNotBlank()) append(" @ $weightStr")
+                    if (exercise.usesStraps) append(" (Straps)")
+                }
             }
 
             Text(

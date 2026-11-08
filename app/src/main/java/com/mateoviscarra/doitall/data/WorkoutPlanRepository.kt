@@ -31,7 +31,7 @@ class WorkoutPlanRepository(
             val cleanPlan = rawPlan.copy(days = filteredDays)
 
             val hasIso = cleanPlan.allExercises().any { it.id == "isometric_pull_ups" || it.id == "isometric_pull_up_holds" }
-            val finalPlan = if (!hasIso) {
+            val withIsoPlan = if (!hasIso) {
                 val isoExercise = CategoryExercise(
                     id = "isometric_pull_up_holds",
                     name = "Isometric Pull-Up Holds",
@@ -50,6 +50,9 @@ class WorkoutPlanRepository(
                 cleanPlan
             }
 
+            // Organize Abs routine into 4 movement slots with alternatives if it still has flat unorganized slots
+            val finalPlan = migrateAbsAndPlankIfNeeded(withIsoPlan)
+
             if (finalPlan != rawPlan) {
                 scope.launch {
                     try {
@@ -64,6 +67,63 @@ class WorkoutPlanRepository(
             Log.e(TAG, "Failed to load saved plan, using default seed", e)
             WorkoutRepository.loadWorkoutPlan(context)
         }
+    }
+
+    private fun migrateAbsAndPlankIfNeeded(plan: NewWorkoutPlan): NewWorkoutPlan {
+        // 1. Clean up plank defaultLoad if it was set to "sec"
+        val updatedCategories = plan.categories.map { cat ->
+            cat.copy(
+                exercises = cat.exercises.map { ex ->
+                    if (ex.id == "plank" && ex.defaultLoad.equals("sec", ignoreCase = true)) {
+                        ex.copy(defaultLoad = "Bodyweight", isBodyweight = true)
+                    } else {
+                        ex
+                    }
+                }
+            )
+        }
+
+        // 2. Organize Abs day into 4 structured movement slots with alternatives if still flat
+        val allCatalogIds = updatedCategories.flatMap { it.exercises }.map { it.id }.toSet()
+        val updatedDays = plan.days.map { day ->
+            if (day.day.equals("Abs", ignoreCase = true) &&
+                day.exercises.size > 4 &&
+                day.exercises.all { it.alternatives.isEmpty() }
+            ) {
+                val existingIdsInAbs = day.exercises.map { it.exerciseId }.toSet()
+                val desiredSlots = listOf(
+                    "ab_machine" to listOf("cable_crunch", "crunches"),
+                    "hanging_leg_raise" to listOf("reverse_crunches", "dragon_flags"),
+                    "torso_rotation_machine" to listOf("bicycle_crunches"),
+                    "plank" to listOf("ab_wheel")
+                )
+
+                val usedIds = mutableSetOf<String>()
+                val organizedSlots = desiredSlots.mapNotNull { (primary, alts) ->
+                    val availableGroup = (listOf(primary) + alts).filter { it in existingIdsInAbs || it in allCatalogIds }
+                    if (availableGroup.isNotEmpty()) {
+                        usedIds.addAll(availableGroup)
+                        DayExercise(
+                            exerciseId = availableGroup.first(),
+                            alternatives = availableGroup.drop(1)
+                        )
+                    } else null
+                }.toMutableList()
+
+                // Preserve any extra custom exercises the user might have added to Abs
+                for (ex in day.exercises) {
+                    if (ex.exerciseId !in usedIds) {
+                        organizedSlots.add(ex)
+                    }
+                }
+
+                day.copy(exercises = organizedSlots)
+            } else {
+                day
+            }
+        }
+
+        return plan.copy(categories = updatedCategories, days = updatedDays)
     }
 
     private fun updateAndPersist(newPlan: NewWorkoutPlan) {

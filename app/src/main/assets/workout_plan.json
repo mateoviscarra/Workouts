@@ -103,12 +103,21 @@
       "id": "accessory",
       "name": "Accessory",
       "exercises": [
-        { "id": "plank", "name": "Plank", "defaultSets": 3, "defaultReps": "60", "defaultLoad": "sec" },
+        { "id": "plank", "name": "Plank", "defaultSets": 3, "defaultReps": "60s", "defaultLoad": "Bodyweight", "isTimed": true, "defaultTime": "60s", "isBodyweight": true },
         { "id": "cable_crunch", "name": "Cable crunch", "defaultSets": 3, "defaultReps": "15", "defaultLoad": "30 kg" },
-        { "id": "hanging_leg_raise", "name": "Hanging leg raise", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "Bodyweight" },
-        { "id": "ab_wheel", "name": "Ab wheel rollout", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "Bodyweight" },
-        { "id": "running", "name": "Running", "defaultSets": 1, "defaultReps": "20", "defaultLoad": "min" },
-        { "id": "cycling", "name": "Cycling", "defaultSets": 1, "defaultReps": "30", "defaultLoad": "min" },
+        { "id": "hanging_leg_raise", "name": "Hanging leg raise", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "ab_wheel", "name": "Ab wheel rollout", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "reverse_crunches", "name": "Reverse Crunches", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "crunches", "name": "Crunches", "defaultSets": 3, "defaultReps": "15", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "bicycle_crunches", "name": "Bicycle Crunches", "defaultSets": 3, "defaultReps": "20", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "torso_rotation_machine", "name": "Torso rotation machine", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "110 lbs", "weightUnit": "lbs" },
+        { "id": "ab_machine", "name": "Ab machine", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "110 lbs", "weightUnit": "lbs" },
+        { "id": "dragon_flags", "name": "Dragon Flags", "defaultSets": 2, "defaultReps": "10", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "running", "name": "Running", "defaultSets": 1, "defaultReps": "20min", "defaultLoad": "" },
+        { "id": "cycling", "name": "Cycling", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "" },
+        { "id": "incline_walking", "name": "Incline walking", "defaultSets": 1, "defaultReps": "45min", "defaultLoad": "" },
+        { "id": "walking", "name": "Walking", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "" },
+        { "id": "stair_master_", "name": "Stair master", "defaultSets": 1, "defaultReps": "10 mins", "defaultLoad": "", "defaultNotes": "Level 5" },
         { "id": "foam_rolling", "name": "Foam rolling", "defaultSets": 1, "defaultReps": "5", "defaultLoad": "min" }
       ]
     }
@@ -199,10 +208,10 @@
       "muscle_groups": ["abs"],
       "is_rest_day": false,
       "exercises": [
-        { "exerciseId": "plank" },
-        { "exerciseId": "cable_crunch" },
-        { "exerciseId": "hanging_leg_raise" },
-        { "exerciseId": "ab_wheel" }
+        { "exerciseId": "ab_machine", "alternatives": ["cable_crunch", "crunches"] },
+        { "exerciseId": "hanging_leg_raise", "alternatives": ["reverse_crunches", "dragon_flags"] },
+        { "exerciseId": "torso_rotation_machine", "alternatives": ["bicycle_crunches"] },
+        { "exerciseId": "plank", "alternatives": ["ab_wheel"] }
       ]
     },
     {
@@ -211,7 +220,10 @@
       "is_rest_day": false,
       "exercises": [
         { "exerciseId": "running" },
-        { "exerciseId": "cycling" }
+        { "exerciseId": "cycling" },
+        { "exerciseId": "incline_walking" },
+        { "exerciseId": "walking" },
+        { "exerciseId": "stair_master_" }
       ]
     }
   ]

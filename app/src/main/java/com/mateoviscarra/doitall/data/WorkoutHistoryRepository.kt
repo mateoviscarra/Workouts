@@ -136,6 +136,7 @@ class WorkoutHistoryRepository(
                     .put("usesStraps", ex.usesStraps)
                     .put("comment", ex.comment)
                     .put("isPR", ex.isPR)
+                    .put("isCardio", ex.isCardio)
                 exArray.put(exObj)
             }
             obj.put("exercises", exArray)
@@ -146,37 +147,83 @@ class WorkoutHistoryRepository(
 
     private fun parseSessionsJson(json: String): List<WorkoutSessionRecord> {
         val array = JSONArray(json)
-        return List(array.length()) { i ->
+        var migratedAny = false
+        val list = List(array.length()) { i ->
             val obj = array.getJSONObject(i)
+            val dayTitle = obj.getString("dayTitle")
+            val isCardioSession = dayTitle.equals("Cardio", ignoreCase = true)
             val exArray = obj.getJSONArray("exercises")
+            var inferredCardioDuration: Int? = null
+
             val exercises = List(exArray.length()) { j ->
                 val exObj = exArray.getJSONObject(j)
                 val unitStr = exObj.optString("weightUnit", "KG")
                 val unit = if (unitStr.equals("LBS", ignoreCase = true)) WeightUnit.LBS else WeightUnit.KG
-                CompletedExerciseRecord(
-                    exerciseId = exObj.getString("exerciseId"),
-                    exerciseName = exObj.getString("exerciseName"),
-                    sets = exObj.optInt("sets", 1),
-                    repsSummary = exObj.optString("repsSummary", ""),
-                    weight = exObj.optString("weight", ""),
-                    numericWeight = exObj.optDouble("numericWeight", 0.0),
-                    weightUnit = unit,
-                    isBodyweight = exObj.optBoolean("isBodyweight", false),
-                    usesStraps = exObj.optBoolean("usesStraps", false),
-                    comment = exObj.optString("comment", ""),
-                    isPR = exObj.optBoolean("isPR", false)
-                )
+                val rawReps = exObj.optString("repsSummary", "")
+                val rawWeight = exObj.optString("weight", "")
+                val rawIsCardio = exObj.optBoolean("isCardio", false)
+
+                if (isCardioSession && !rawIsCardio) {
+                    migratedAny = true
+                    // Legacy cardio log where duration was stored in weight (e.g. "45 min") or repsSummary (e.g. "30min")
+                    val weightHasMin = rawWeight.contains("min", ignoreCase = true)
+                    val durationStr = when {
+                        weightHasMin -> rawWeight.trim()
+                        rawReps.contains("min", ignoreCase = true) -> rawReps.trim()
+                        rawReps.toIntOrNull() != null && rawReps.toInt() > 1 -> "$rawReps min"
+                        else -> "${obj.optInt("durationMinutes", 30)} min"
+                    }
+                    val minsMatch = Regex("""\d+""").find(durationStr)?.value?.toIntOrNull()
+                    if (minsMatch != null && minsMatch > 0) {
+                        inferredCardioDuration = minsMatch
+                    }
+                    CompletedExerciseRecord(
+                        exerciseId = exObj.getString("exerciseId"),
+                        exerciseName = exObj.getString("exerciseName"),
+                        sets = 1,
+                        repsSummary = durationStr,
+                        weight = if (weightHasMin) "" else rawWeight,
+                        numericWeight = 0.0,
+                        weightUnit = unit,
+                        isBodyweight = false,
+                        usesStraps = false,
+                        comment = exObj.optString("comment", ""),
+                        isPR = false,
+                        isCardio = true
+                    )
+                } else {
+                    CompletedExerciseRecord(
+                        exerciseId = exObj.getString("exerciseId"),
+                        exerciseName = exObj.getString("exerciseName"),
+                        sets = exObj.optInt("sets", 1),
+                        repsSummary = rawReps,
+                        weight = rawWeight,
+                        numericWeight = exObj.optDouble("numericWeight", 0.0),
+                        weightUnit = unit,
+                        isBodyweight = exObj.optBoolean("isBodyweight", false),
+                        usesStraps = exObj.optBoolean("usesStraps", false),
+                        comment = exObj.optString("comment", ""),
+                        isPR = exObj.optBoolean("isPR", false),
+                        isCardio = rawIsCardio || isCardioSession
+                    )
+                }
             }
             WorkoutSessionRecord(
                 id = obj.getString("id"),
-                dayTitle = obj.getString("dayTitle"),
+                dayTitle = dayTitle,
                 dateIso = obj.getString("dateIso"),
                 timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
-                durationMinutes = obj.optInt("durationMinutes", 60),
+                durationMinutes = inferredCardioDuration ?: obj.optInt("durationMinutes", 60),
                 exercises = exercises,
                 notes = obj.optString("notes", "")
             )
         }
+        if (migratedAny) {
+            scope.launch {
+                persistSessions(list)
+            }
+        }
+        return list
     }
 
     fun exportHistoryJson(): JSONObject {

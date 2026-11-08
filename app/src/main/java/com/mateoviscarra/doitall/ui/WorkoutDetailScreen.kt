@@ -136,6 +136,19 @@ fun WorkoutDetailScreen(
     viewModel: com.mateoviscarra.doitall.viewmodel.WorkoutDetailViewModel = androidx.lifecycle.viewmodel.compose.viewModel(key = dayKey),
     historyViewModel: HistoryViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 ) {
+    if (workoutDay.day.equals("Cardio", ignoreCase = true) || workoutDay.day.contains("cardio", ignoreCase = true)) {
+        CardioWorkoutScreen(
+            workoutPlan = workoutPlan,
+            workoutDay = workoutDay,
+            onBack = onBack,
+            onEditRoutine = onEditRoutine ?: {},
+            calendarManager = calendarManager,
+            planViewModel = planViewModel,
+            historyViewModel = historyViewModel
+        )
+        return
+    }
+
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var isSyncing by remember { mutableStateOf(false) }
@@ -606,7 +619,12 @@ fun WorkoutDetailScreen(
                                 append("No exercises logged")
                             } else {
                                 completedExercises.forEachIndexed { index, ex ->
-                                    append("${ex.exerciseName}: ${ex.sets} sets × ${ex.repsSummary} reps")
+                                    val isTimedFormat = ex.repsSummary.any { it.isLetter() }
+                                    if (isTimedFormat) {
+                                        append("${ex.exerciseName}: ${ex.sets} sets × ${ex.repsSummary}")
+                                    } else {
+                                        append("${ex.exerciseName}: ${ex.sets} sets × ${ex.repsSummary} reps")
+                                    }
                                     val weightStr = formatExerciseWeight(
                                         weight = ex.weight,
                                         isBodyweight = ex.isBodyweight,
@@ -617,6 +635,9 @@ fun WorkoutDetailScreen(
                                     }
                                     if (ex.usesStraps) {
                                         append(" (Straps)")
+                                    }
+                                    if (ex.comment.isNotBlank()) {
+                                        append(" (${ex.comment})")
                                     }
                                     if (index < completedExercises.size - 1) {
                                         append("\n")

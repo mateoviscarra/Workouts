@@ -119,8 +119,12 @@ fun WorkoutsScreen(
 
             when (selectedTab) {
                 0 -> {
+                    val exerciseNames = androidx.compose.runtime.remember(categories) {
+                        categories.flatMap { it.exercises }.associate { it.id to it.name }
+                    }
                     WorkoutListScreen(
                         workoutDays = workoutDays,
+                        exerciseNamesById = exerciseNames,
                         onDaySelected = onDaySelected,
                         onSettingsClick = onSettingsClick,
                         onCustomClick = onCustomClick,

@@ -64,6 +64,8 @@ fun UnifiedFinishWorkoutDialog(
     workoutTitle: String,
     completedExercises: List<CompletedExerciseRecord>,
     isCalendarConnected: Boolean,
+    initialDurationMinutes: Int = 60,
+    isCardioSession: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (
         uncheckAfter: Boolean,
@@ -76,11 +78,13 @@ fun UnifiedFinishWorkoutDialog(
 ) {
     var uncheckAfter by remember { mutableStateOf(true) }
     var syncToCalendar by remember { mutableStateOf(isCalendarConnected) }
-    var durationMinutes by remember { mutableIntStateOf(60) }
+    var durationMinutes by remember(initialDurationMinutes) { mutableIntStateOf(initialDurationMinutes) }
     var timingOption by remember { mutableStateOf(WorkoutTimingOption.FINISHED_NOW) }
 
     var customDate by remember { mutableStateOf(LocalDate.now()) }
-    var customStartTime by remember { mutableStateOf(LocalTime.now().minusHours(1)) }
+    var customStartTime by remember(initialDurationMinutes) {
+        mutableStateOf(LocalTime.now().minusMinutes(initialDurationMinutes.toLong()))
+    }
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
@@ -113,43 +117,67 @@ fun UnifiedFinishWorkoutDialog(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            text = "$workoutTitle • ${completedExercises.size} exercises",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        val totalVol = completedExercises.sumOf { ex ->
-                            val repsParts = ex.repsSummary.split(",")
-                            val repsCount = repsParts.mapNotNull { it.trim().toDoubleOrNull() }
-                            val repsAvg = if (repsCount.isNotEmpty()) repsCount.average() else 10.0
-                            val effWeight = if (ex.numericWeight > 0) ex.numericWeight else 0.0
-                            ex.sets * repsAvg * effWeight
-                        }
-                        if (totalVol > 0) {
-                            val unitStr = completedExercises.firstOrNull { it.numericWeight > 0 }?.weightUnit?.name?.lowercase() ?: "kg"
+                        if (isCardioSession) {
+                            val cardioEx = completedExercises.firstOrNull()
                             Text(
-                                text = "Total Volume: ${String.format(Locale.US, "%,.0f", totalVol)} $unitStr",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "${cardioEx?.exerciseName ?: workoutTitle} • $durationMinutes min",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
                             )
+                            val detailLine = listOfNotNull(
+                                cardioEx?.weight?.takeIf { it.isNotBlank() },
+                                cardioEx?.comment?.takeIf { it.isNotBlank() }
+                            ).joinToString(" • ")
+                            if (detailLine.isNotBlank()) {
+                                Text(
+                                    text = detailLine,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "$workoutTitle • ${completedExercises.size} exercises",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            val totalVol = completedExercises.sumOf { ex ->
+                                if (ex.isCardio) 0.0 else {
+                                    val repsParts = ex.repsSummary.split(",")
+                                    val repsCount = repsParts.mapNotNull { it.trim().toDoubleOrNull() }
+                                    val repsAvg = if (repsCount.isNotEmpty()) repsCount.average() else 10.0
+                                    val effWeight = if (ex.numericWeight > 0) ex.numericWeight else 0.0
+                                    ex.sets * repsAvg * effWeight
+                                }
+                            }
+                            if (totalVol > 0) {
+                                val unitStr = completedExercises.firstOrNull { !it.isCardio && it.numericWeight > 0 }?.weightUnit?.name?.lowercase() ?: "kg"
+                                Text(
+                                    text = "Total Volume: ${String.format(Locale.US, "%,.0f", totalVol)} $unitStr",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
 
-                // Checkbox: reset checkmarks
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Checkbox(
-                        checked = uncheckAfter,
-                        onCheckedChange = { uncheckAfter = it }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Reset exercise checkmarks for next time",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                // Checkbox: reset checkmarks (only for multi-exercise routines)
+                if (!isCardioSession) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Checkbox(
+                            checked = uncheckAfter,
+                            onCheckedChange = { uncheckAfter = it }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Reset exercise checkmarks for next time",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
 
                 HorizontalDivider()
@@ -200,13 +228,15 @@ fun UnifiedFinishWorkoutDialog(
                             text = "Duration: $durationMinutes minutes",
                             style = MaterialTheme.typography.labelMedium
                         )
-                        Slider(
-                            value = durationMinutes.toFloat(),
-                            onValueChange = { durationMinutes = it.toInt() },
-                            valueRange = 15f..180f,
-                            steps = 10,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        if (!isCardioSession) {
+                            Slider(
+                                value = durationMinutes.toFloat().coerceIn(15f, 180f),
+                                onValueChange = { durationMinutes = ((it / 5f).toInt() * 5).coerceIn(15, 180) },
+                                valueRange = 15f..180f,
+                                steps = 32,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
 
                         Text(
                             text = "When was this workout?",

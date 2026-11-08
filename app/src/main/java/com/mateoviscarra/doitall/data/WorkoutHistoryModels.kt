@@ -13,7 +13,8 @@ data class CompletedExerciseRecord(
     val isBodyweight: Boolean = false,
     val usesStraps: Boolean = false,
     val comment: String = "",
-    val isPR: Boolean = false
+    val isPR: Boolean = false,
+    val isCardio: Boolean = false
 )
 
 data class WorkoutSessionRecord(
@@ -26,7 +27,7 @@ data class WorkoutSessionRecord(
     val notes: String = ""
 ) {
     val totalVolume: Double get() = exercises.sumOf { ex ->
-        if (ex.numericWeight > 0) {
+        if (!ex.isCardio && ex.numericWeight > 0) {
             val repsParts = ex.repsSummary.split(",")
             val repsCount = repsParts.mapNotNull { it.trim().toDoubleOrNull() }
             val repsAvg = if (repsCount.isNotEmpty()) repsCount.average() else 10.0
