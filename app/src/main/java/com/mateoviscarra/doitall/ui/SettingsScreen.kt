@@ -290,10 +290,13 @@ fun SettingsScreen(
 
                     Button(
                         onClick = {
-                            val cals = calorieInput.toIntOrNull() ?: goals.calorieTarget
-                            val prot = proteinInput.toFloatOrNull() ?: goals.proteinTargetGrams
-                            val carbs = carbsInput.toFloatOrNull() ?: goals.carbsTargetGrams
-                            val fat = fatInput.toFloatOrNull() ?: goals.fatTargetGrams
+                            val cleanCal = calorieInput.trim().replace(',', '.')
+                            val cals = cleanCal.toIntOrNull()
+                                ?: cleanCal.toDoubleOrNull()?.let { kotlin.math.round(it).toInt() }
+                                ?: goals.calorieTarget
+                            val prot = proteinInput.trim().replace(',', '.').toFloatOrNull() ?: goals.proteinTargetGrams
+                            val carbs = carbsInput.trim().replace(',', '.').toFloatOrNull() ?: goals.carbsTargetGrams
+                            val fat = fatInput.trim().replace(',', '.').toFloatOrNull() ?: goals.fatTargetGrams
                             repo.updateGoals(
                                 NutritionGoals(
                                     calorieTarget = cals,

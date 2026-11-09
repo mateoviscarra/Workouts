@@ -2522,6 +2522,23 @@ private fun IngredientsEditorSection(
     }
 }
 
+private fun parseCaloriesInput(text: String): Int {
+    val clean = text.trim().replace(',', '.')
+    return clean.toIntOrNull()
+        ?: clean.toDoubleOrNull()?.let { kotlin.math.round(it).toInt() }
+        ?: 0
+}
+
+private fun parseMacroInput(text: String): Float {
+    val clean = text.trim().replace(',', '.')
+    return clean.toFloatOrNull() ?: 0f
+}
+
+private fun formatMacroInput(value: Float?): String {
+    if (value == null || value <= 0f) return ""
+    return if (value % 1f == 0f) value.toInt().toString() else value.toString()
+}
+
 // -------------------------------------------------------------------------
 // INGREDIENT EDITOR DIALOG
 // -------------------------------------------------------------------------
@@ -2533,10 +2550,10 @@ private fun IngredientEditorDialog(
 ) {
     var name by remember { mutableStateOf(initialIngredient?.name ?: "") }
     var amount by remember { mutableStateOf(initialIngredient?.amountDescription ?: "") }
-    var calories by remember { mutableStateOf(initialIngredient?.calories?.toString() ?: "") }
-    var protein by remember { mutableStateOf(initialIngredient?.proteinGrams?.let { if (it > 0f) it.toInt().toString() else "" } ?: "") }
-    var carbs by remember { mutableStateOf(initialIngredient?.carbsGrams?.let { if (it > 0f) it.toInt().toString() else "" } ?: "") }
-    var fat by remember { mutableStateOf(initialIngredient?.fatGrams?.let { if (it > 0f) it.toInt().toString() else "" } ?: "") }
+    var calories by remember { mutableStateOf(initialIngredient?.calories?.takeIf { it > 0 }?.toString() ?: "") }
+    var protein by remember { mutableStateOf(formatMacroInput(initialIngredient?.proteinGrams)) }
+    var carbs by remember { mutableStateOf(formatMacroInput(initialIngredient?.carbsGrams)) }
+    var fat by remember { mutableStateOf(formatMacroInput(initialIngredient?.fatGrams)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2574,7 +2591,7 @@ private fun IngredientEditorDialog(
                         value = calories,
                         onValueChange = { calories = it },
                         label = { Text("Calories") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -2582,7 +2599,7 @@ private fun IngredientEditorDialog(
                         value = protein,
                         onValueChange = { protein = it },
                         label = { Text("Protein (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -2596,7 +2613,7 @@ private fun IngredientEditorDialog(
                         value = carbs,
                         onValueChange = { carbs = it },
                         label = { Text("Carbs (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -2604,7 +2621,7 @@ private fun IngredientEditorDialog(
                         value = fat,
                         onValueChange = { fat = it },
                         label = { Text("Fat (g)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -2618,10 +2635,10 @@ private fun IngredientEditorDialog(
                         val ingredient = (initialIngredient ?: MealIngredient(name = "", calories = 0)).copy(
                             name = name.trim(),
                             amountDescription = amount.trim(),
-                            calories = calories.toIntOrNull() ?: 0,
-                            proteinGrams = protein.toFloatOrNull() ?: 0f,
-                            carbsGrams = carbs.toFloatOrNull() ?: 0f,
-                            fatGrams = fat.toFloatOrNull() ?: 0f
+                            calories = parseCaloriesInput(calories),
+                            proteinGrams = parseMacroInput(protein),
+                            carbsGrams = parseMacroInput(carbs),
+                            fatGrams = parseMacroInput(fat)
                         )
                         onSave(ingredient)
                     }
@@ -2651,9 +2668,9 @@ private fun QuickAddFoodDialog(
 ) {
     var name by remember { mutableStateOf(initialEntry?.name ?: "") }
     var calories by remember { mutableStateOf(initialEntry?.calories?.toString() ?: "") }
-    var protein by remember { mutableStateOf(initialEntry?.proteinGrams?.toInt()?.toString() ?: "") }
-    var carbs by remember { mutableStateOf(initialEntry?.carbsGrams?.toInt()?.toString() ?: "") }
-    var fat by remember { mutableStateOf(initialEntry?.fatGrams?.toInt()?.toString() ?: "") }
+    var protein by remember { mutableStateOf(formatMacroInput(initialEntry?.proteinGrams)) }
+    var carbs by remember { mutableStateOf(formatMacroInput(initialEntry?.carbsGrams)) }
+    var fat by remember { mutableStateOf(formatMacroInput(initialEntry?.fatGrams)) }
     var selectedSlot by remember { mutableStateOf(initialEntry?.mealSlot ?: initialMealSlot) }
     var note by remember { mutableStateOf(initialEntry?.note ?: "") }
     var saveAsStaple by remember { mutableStateOf(false) }
@@ -2664,10 +2681,10 @@ private fun QuickAddFoodDialog(
     var ingredientToEdit by remember { mutableStateOf<MealIngredient?>(null) }
 
     val hasIngredients = ingredients.isNotEmpty()
-    val calcCals = if (hasIngredients) ingredients.sumOf { it.calories } else (calories.toIntOrNull() ?: 0)
-    val calcProt = if (hasIngredients) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else (protein.toFloatOrNull() ?: 0f)
-    val calcCarbs = if (hasIngredients) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else (carbs.toFloatOrNull() ?: 0f)
-    val calcFat = if (hasIngredients) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else (fat.toFloatOrNull() ?: 0f)
+    val calcCals = if (hasIngredients) ingredients.sumOf { it.calories } else parseCaloriesInput(calories)
+    val calcProt = if (hasIngredients) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else parseMacroInput(protein)
+    val calcCarbs = if (hasIngredients) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else parseMacroInput(carbs)
+    val calcFat = if (hasIngredients) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else parseMacroInput(fat)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2730,7 +2747,7 @@ private fun QuickAddFoodDialog(
                             value = calories,
                             onValueChange = { calories = it },
                             label = { Text("Calories") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -2738,7 +2755,7 @@ private fun QuickAddFoodDialog(
                             value = protein,
                             onValueChange = { protein = it },
                             label = { Text("Protein (g)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -2752,7 +2769,7 @@ private fun QuickAddFoodDialog(
                             value = carbs,
                             onValueChange = { carbs = it },
                             label = { Text("Carbs (g)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -2760,7 +2777,7 @@ private fun QuickAddFoodDialog(
                             value = fat,
                             onValueChange = { fat = it },
                             label = { Text("Fat (g)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -2848,10 +2865,10 @@ private fun StapleEditorDialog(
     onSave: (SavedMeal) -> Unit
 ) {
     var name by remember { mutableStateOf(initialStaple?.name ?: "") }
-    var calories by remember { mutableStateOf(initialStaple?.calories?.toString() ?: "") }
-    var protein by remember { mutableStateOf(initialStaple?.proteinGrams?.toInt()?.toString() ?: "") }
-    var carbs by remember { mutableStateOf(initialStaple?.carbsGrams?.toInt()?.toString() ?: "") }
-    var fat by remember { mutableStateOf(initialStaple?.fatGrams?.toInt()?.toString() ?: "") }
+    var calories by remember { mutableStateOf(initialStaple?.calories?.takeIf { it > 0 }?.toString() ?: "") }
+    var protein by remember { mutableStateOf(formatMacroInput(initialStaple?.proteinGrams)) }
+    var carbs by remember { mutableStateOf(formatMacroInput(initialStaple?.carbsGrams)) }
+    var fat by remember { mutableStateOf(formatMacroInput(initialStaple?.fatGrams)) }
     var servingDesc by remember { mutableStateOf(initialStaple?.servingDescription ?: "") }
     var selectedSlot by remember { mutableStateOf(initialStaple?.defaultMealSlot ?: MealSlot.BREAKFAST) }
     var isPinned by remember { mutableStateOf(initialStaple?.isPinnedStaple ?: true) }
@@ -2862,10 +2879,10 @@ private fun StapleEditorDialog(
     var ingredientToEdit by remember { mutableStateOf<MealIngredient?>(null) }
 
     val hasIngredients = ingredients.isNotEmpty()
-    val calcCals = if (hasIngredients) ingredients.sumOf { it.calories } else (calories.toIntOrNull() ?: 0)
-    val calcProt = if (hasIngredients) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else (protein.toFloatOrNull() ?: 0f)
-    val calcCarbs = if (hasIngredients) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else (carbs.toFloatOrNull() ?: 0f)
-    val calcFat = if (hasIngredients) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else (fat.toFloatOrNull() ?: 0f)
+    val calcCals = if (hasIngredients) ingredients.sumOf { it.calories } else parseCaloriesInput(calories)
+    val calcProt = if (hasIngredients) ingredients.sumOf { it.proteinGrams.toDouble() }.toFloat() else parseMacroInput(protein)
+    val calcCarbs = if (hasIngredients) ingredients.sumOf { it.carbsGrams.toDouble() }.toFloat() else parseMacroInput(carbs)
+    val calcFat = if (hasIngredients) ingredients.sumOf { it.fatGrams.toDouble() }.toFloat() else parseMacroInput(fat)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2922,7 +2939,7 @@ private fun StapleEditorDialog(
                             value = calories,
                             onValueChange = { calories = it },
                             label = { Text("Calories") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -2930,7 +2947,7 @@ private fun StapleEditorDialog(
                             value = protein,
                             onValueChange = { protein = it },
                             label = { Text("Protein (g)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -2944,7 +2961,7 @@ private fun StapleEditorDialog(
                             value = carbs,
                             onValueChange = { carbs = it },
                             label = { Text("Carbs (g)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -2952,7 +2969,7 @@ private fun StapleEditorDialog(
                             value = fat,
                             onValueChange = { fat = it },
                             label = { Text("Fat (g)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
