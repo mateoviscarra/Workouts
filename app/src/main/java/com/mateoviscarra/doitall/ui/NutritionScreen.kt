@@ -1,6 +1,7 @@
 package com.mateoviscarra.doitall.ui
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
@@ -9,9 +10,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -170,6 +174,7 @@ fun NutritionScreen(
     var weightLogToDelete by remember { mutableStateOf<WeightLogEntry?>(null) }
 
     var showScanSourceSheet by remember { mutableStateOf(false) }
+    var selectedScanUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var scanUserNote by remember { mutableStateOf("") }
     var isAnalyzingPhoto by remember { mutableStateOf(false) }
     var scannedResult by remember { mutableStateOf<FoodScanResult?>(null) }
@@ -181,34 +186,38 @@ fun NutritionScreen(
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success && cameraTempUri != null) {
             val uri = cameraTempUri!!
-            isAnalyzingPhoto = true
-            scope.launch {
-                val result = visionClient.analyzeFoodImage(uri, apiKey, aiPrompt, scanUserNote)
-                isAnalyzingPhoto = false
-                if (result.isSuccess) {
-                    scannedResult = result.getOrNull()
-                } else {
-                    val msg = result.exceptionOrNull()?.message ?: "Unknown error"
-                    scanErrorMessage = msg
-                    Toast.makeText(context, "Scan error: $msg", Toast.LENGTH_LONG).show()
-                }
-            }
+            selectedScanUris = selectedScanUris + uri
+            showScanSourceSheet = true
         }
     }
 
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
-            isAnalyzingPhoto = true
-            scope.launch {
-                val result = visionClient.analyzeFoodImage(uri, apiKey, aiPrompt, scanUserNote)
-                isAnalyzingPhoto = false
-                if (result.isSuccess) {
-                    scannedResult = result.getOrNull()
-                } else {
-                    val msg = result.exceptionOrNull()?.message ?: "Unknown error"
-                    scanErrorMessage = msg
-                    Toast.makeText(context, "Scan error: $msg", Toast.LENGTH_LONG).show()
-                }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) {
+            selectedScanUris = (selectedScanUris + uris).distinct()
+            showScanSourceSheet = true
+        }
+    }
+
+    fun runAiAnalysis() {
+        if (selectedScanUris.isEmpty()) return
+        showScanSourceSheet = false
+        isAnalyzingPhoto = true
+        scope.launch {
+            val result = visionClient.analyzeFoodImages(
+                imageUris = selectedScanUris,
+                apiKey = apiKey,
+                systemPrompt = aiPrompt,
+                userNote = scanUserNote
+            )
+            isAnalyzingPhoto = false
+            if (result.isSuccess) {
+                scannedResult = result.getOrNull()
+                selectedScanUris = emptyList()
+                scanUserNote = ""
+            } else {
+                val msg = result.exceptionOrNull()?.message ?: "Unknown error"
+                scanErrorMessage = msg
+                Toast.makeText(context, "Scan error: $msg", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -523,7 +532,7 @@ fun NutritionScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
@@ -532,40 +541,29 @@ fun NutritionScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Snap a photo of your meal or nutrition label. Gemini will detect items, estimate portions, and calculate macros.",
+                    text = "Add one or multiple photos from your camera and gallery (e.g. nutrition label + serving size), refine your extra details, and analyze together.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                OutlinedTextField(
-                    value = scanUserNote,
-                    onValueChange = { scanUserNote = it },
-                    label = { Text("Extra details (optional)") },
-                    placeholder = { Text("e.g. 2 pieces, Bolivian marraqueta with cheese") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = false,
-                    maxLines = 2
-                )
-
+                // Add Photos Row: Camera & Gallery (can be used multiple times & combined)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     FilledTonalButton(
                         onClick = {
-                            showScanSourceSheet = false
                             startCameraCapture()
                         },
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.PhotoCamera, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Camera")
+                        Text(if (selectedScanUris.isEmpty()) "Camera" else "Add Camera")
                     }
 
                     OutlinedButton(
                         onClick = {
-                            showScanSourceSheet = false
                             galleryLauncher.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
@@ -574,11 +572,77 @@ fun NutritionScreen(
                     ) {
                         Icon(Icons.Default.Image, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Gallery")
+                        Text(if (selectedScanUris.isEmpty()) "Gallery" else "Add Gallery")
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                // Selected Photos Thumbnail Strip
+                if (selectedScanUris.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Selected Photos (${selectedScanUris.size})",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            TextButton(
+                                onClick = { selectedScanUris = emptyList() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("Clear all", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(vertical = 2.dp)
+                        ) {
+                            items(selectedScanUris, key = { it.toString() }) { uri ->
+                                ScanPhotoThumbnail(
+                                    uri = uri,
+                                    onRemove = {
+                                        selectedScanUris = selectedScanUris.filterNot { it == uri }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = scanUserNote,
+                    onValueChange = { scanUserNote = it },
+                    label = { Text("Extra details (optional)") },
+                    placeholder = { Text("e.g. 2 pieces, 1.5 servings, with camote") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    maxLines = 3
+                )
+
+                Button(
+                    onClick = { runAiAnalysis() },
+                    enabled = selectedScanUris.isNotEmpty(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    val btnText = when (selectedScanUris.size) {
+                        0 -> "Add a Photo to Analyze"
+                        1 -> "Analyze 1 Photo with AI"
+                        else -> "Analyze ${selectedScanUris.size} Photos with AI"
+                    }
+                    Text(btnText, fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
@@ -645,15 +709,95 @@ fun NutritionScreen(
     // --- SCAN ERROR DIALOG ---
     scanErrorMessage?.let { errorMsg ->
         AlertDialog(
-            onDismissRequest = { scanErrorMessage = null },
+            onDismissRequest = {
+                scanErrorMessage = null
+                if (selectedScanUris.isNotEmpty()) showScanSourceSheet = true
+            },
             title = { Text("AI Scan Notice") },
             text = { Text(errorMsg) },
             confirmButton = {
-                Button(onClick = { scanErrorMessage = null }) {
+                Button(
+                    onClick = {
+                        scanErrorMessage = null
+                        if (selectedScanUris.isNotEmpty()) showScanSourceSheet = true
+                    }
+                ) {
                     Text("OK")
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ScanPhotoThumbnail(
+    uri: Uri,
+    onRemove: () -> Unit
+) {
+    val context = LocalContext.current
+    val bitmap = remember(uri) {
+        try {
+            val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, boundsOpts)
+            }
+            var sampleSize = 1
+            while (boundsOpts.outWidth / (sampleSize * 2) >= 240 &&
+                boundsOpts.outHeight / (sampleSize * 2) >= 240
+            ) {
+                sampleSize *= 2
+            }
+            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, decodeOpts)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(84.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Selected photo",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(32.dp)
+                    .align(Alignment.Center)
+            )
+        }
+
+        Surface(
+            onClick = onRemove,
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.7f),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+                .size(22.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Remove photo",
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
     }
 }
 
