@@ -37,12 +37,14 @@ import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.lazy.items
+import com.mateoviscarra.doitall.data.Category
 import com.mateoviscarra.doitall.data.CategoryExercise
 import com.mateoviscarra.doitall.data.DayExercise
 import com.mateoviscarra.doitall.viewmodel.WorkoutPlanViewModel
@@ -97,6 +99,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mateoviscarra.doitall.calendar.CalendarManager
 import com.mateoviscarra.doitall.data.CompletedExerciseRecord
+import com.mateoviscarra.doitall.data.ExerciseDefinition
 import com.mateoviscarra.doitall.data.ExerciseLocation
 import com.mateoviscarra.doitall.data.PersonalRecord
 import com.mateoviscarra.doitall.data.WorkoutDay
@@ -157,6 +160,8 @@ fun WorkoutDetailScreen(
     var quickEditExercise by remember { mutableStateOf<Triple<String, String, ExerciseLogState>?>(null) }
     var quickEditSlotIndex by remember { mutableStateOf<Int?>(null) }
     var showPairSupersetDialog by remember { mutableStateOf(false) }
+    var activeTemporaryPickerSlotIndex by remember { mutableStateOf<Int?>(null) }
+    var showCreateExerciseDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(dayKey, workoutDay, workoutPlan) {
         viewModel.loadDay(dayKey, workoutDay, workoutPlan)
@@ -271,9 +276,11 @@ fun WorkoutDetailScreen(
                 .padding(innerPadding)
         ) {
             if (workoutDay.slots.isNotEmpty()) {
-                val completedSlots = workoutDay.slots.count { slot ->
-                    slot.exerciseIds.any { id -> id in resolved.dayLog.doneExercises }
-                }
+                val completedSlots = workoutDay.slots.mapIndexed { idx, slot ->
+                    val tempId = resolved.dayLog.slots[idx.toString()]?.temporaryExerciseId
+                    slot.exerciseIds.any { id -> id in resolved.dayLog.doneExercises } ||
+                        (tempId != null && tempId in resolved.dayLog.doneExercises)
+                }.count { it }
                 val totalSlots = workoutDay.slots.size
                 val progress = if (totalSlots > 0) completedSlots.toFloat() / totalSlots else 0f
                 val isAllComplete = totalSlots > 0 && completedSlots == totalSlots
@@ -396,6 +403,7 @@ fun WorkoutDetailScreen(
                                     locationsById = locationsById,
                                     doneExercises = resolved.dayLog.doneExercises,
                                     supersetLabel = null,
+                                    planViewModel = planViewModel,
                                     onPageSelected = { page ->
                                         viewModel.updateSelectedPage(slotIndex, page)
                                     },
@@ -405,6 +413,12 @@ fun WorkoutDetailScreen(
                                     },
                                     onToggleDone = { exerciseId ->
                                         viewModel.toggleExerciseDone(exerciseId)
+                                    },
+                                    onAddTemporary = {
+                                        activeTemporaryPickerSlotIndex = slotIndex
+                                    },
+                                    onRemoveTemporary = {
+                                        viewModel.setTemporaryExercise(slotIndex, null)
                                     }
                                 )
                             }
@@ -488,6 +502,7 @@ fun WorkoutDetailScreen(
                                                 locationsById = locationsById,
                                                 doneExercises = resolved.dayLog.doneExercises,
                                                 supersetLabel = supersetLabel,
+                                                planViewModel = planViewModel,
                                                 onPageSelected = { page ->
                                                     viewModel.updateSelectedPage(slotIndex, page)
                                                 },
@@ -497,6 +512,12 @@ fun WorkoutDetailScreen(
                                                 },
                                                 onToggleDone = { exerciseId ->
                                                     viewModel.toggleExerciseDone(exerciseId)
+                                                },
+                                                onAddTemporary = {
+                                                    activeTemporaryPickerSlotIndex = slotIndex
+                                                },
+                                                onRemoveTemporary = {
+                                                    viewModel.setTemporaryExercise(slotIndex, null)
                                                 }
                                             )
                                         }
@@ -540,13 +561,36 @@ fun WorkoutDetailScreen(
                 val slot = workoutDay.slots[slotIndex]
                 val slotState = resolved.dayLog.slots[slotIndex.toString()]
                     ?: com.mateoviscarra.doitall.data.persist.normalizeSlotState(slot, null)
-                val selectedPageIndex = slotState.selectedPage.coerceIn(0, slot.exerciseIds.size - 1)
-                val exerciseId = slotState.pageBindings.getOrNull(selectedPageIndex) ?: slot.exerciseIds[selectedPageIndex]
+                val isTemporaryPage = slotState.selectedPage == slot.exerciseIds.size
+                val exerciseId = if (isTemporaryPage && slotState.temporaryExerciseId != null) {
+                    slotState.temporaryExerciseId
+                } else {
+                    val selectedPageIndex = slotState.selectedPage.coerceIn(0, (slot.exerciseIds.size - 1).coerceAtLeast(0))
+                    slotState.pageBindings.getOrNull(selectedPageIndex) ?: slot.exerciseIds.getOrNull(selectedPageIndex)
+                }
+                if (exerciseId == null) continue
 
                 val isDone = exerciseId in resolved.dayLog.doneExercises
                 val hasDoneAny = resolved.dayLog.doneExercises.isNotEmpty()
                 if (!hasDoneAny || isDone) {
                     val def = workoutPlan.catalog[exerciseId]
+                        ?: planViewModel?.plan?.value?.findExercise(exerciseId)?.let { catEx ->
+                            ExerciseDefinition(
+                                id = catEx.id,
+                                name = catEx.name,
+                                sets = catEx.defaultSets.toString(),
+                                reps = catEx.defaultReps,
+                                load = catEx.defaultLoad,
+                                duration = null,
+                                intensity = null,
+                                isTimed = catEx.isTimed,
+                                defaultTime = catEx.defaultTime,
+                                isBodyweight = catEx.isBodyweight,
+                                weightUnit = catEx.weightUnit,
+                                usesStraps = catEx.usesStraps,
+                                defaultNotes = catEx.defaultNotes
+                            )
+                        }
                     val name = def?.name ?: exerciseId
                     val log = resolved.exerciseLogs[exerciseId] ?: (def?.let { defaultExerciseLog(it) } ?: continue)
                     val repsStr = when {
@@ -725,6 +769,18 @@ fun WorkoutDetailScreen(
             },
             onSave = { updatedLog ->
                 viewModel.updateExerciseLog(exerciseId, updatedLog)
+                if (planViewModel != null) {
+                    val currentPlan = planViewModel.plan.value
+                    val catEx = currentPlan.findExercise(exerciseId)
+                    val cat = currentPlan.categories.find { c -> c.exercises.any { it.id == exerciseId } }
+                    if (catEx != null && cat != null && (catEx.isTimed != updatedLog.isTimed || catEx.defaultTime != updatedLog.timeTarget)) {
+                        val updatedCatEx = catEx.copy(
+                            isTimed = updatedLog.isTimed,
+                            defaultTime = updatedLog.timeTarget.ifEmpty { "60s" }
+                        )
+                        planViewModel.editExerciseInCategory(cat.id, updatedCatEx)
+                    }
+                }
                 quickEditExercise = null
                 quickEditSlotIndex = null
             }
@@ -795,6 +851,62 @@ fun WorkoutDetailScreen(
             }
         )
     }
+
+    activeTemporaryPickerSlotIndex?.let { slotIndex ->
+        val slotState = resolved.dayLog.slots[slotIndex.toString()]
+        val allCatalogExercises = planViewModel?.plan?.value?.allExercises() ?: workoutPlan.catalog.values.map {
+            CategoryExercise(
+                id = it.id,
+                name = it.name,
+                defaultSets = it.sets.toIntOrNull() ?: 3,
+                defaultReps = it.reps,
+                defaultLoad = it.load,
+                isTimed = it.isTimed,
+                defaultTime = it.defaultTime,
+                isBodyweight = it.isBodyweight,
+                weightUnit = it.weightUnit,
+                usesStraps = it.usesStraps,
+                defaultNotes = it.defaultNotes
+            )
+        }
+        val categories = planViewModel?.plan?.value?.categories ?: emptyList()
+
+        TemporaryExercisePickerSheet(
+            allExercises = allCatalogExercises,
+            categories = categories,
+            currentTemporaryId = slotState?.temporaryExerciseId,
+            onDismiss = { activeTemporaryPickerSlotIndex = null },
+            onSelectExercise = { selected ->
+                viewModel.setTemporaryExercise(slotIndex, selected.id)
+                activeTemporaryPickerSlotIndex = null
+            },
+            onCreateNewClick = {
+                showCreateExerciseDialog = true
+            },
+            onClearTemporary = {
+                viewModel.setTemporaryExercise(slotIndex, null)
+                activeTemporaryPickerSlotIndex = null
+            }
+        )
+    }
+
+    if (showCreateExerciseDialog) {
+        val categories = planViewModel?.plan?.value?.categories ?: emptyList()
+        AddEditExerciseDialog(
+            categories = categories,
+            initialCategory = categories.firstOrNull(),
+            initialExercise = null,
+            onDismiss = { showCreateExerciseDialog = false },
+            onConfirm = { catId, newExercise ->
+                planViewModel?.addExerciseToCategory(catId, newExercise)
+                activeTemporaryPickerSlotIndex?.let { slotIndex ->
+                    viewModel.setTemporaryExercise(slotIndex, newExercise.id)
+                }
+                showCreateExerciseDialog = false
+                activeTemporaryPickerSlotIndex = null
+            }
+        )
+    }
 }
 
 private sealed class WorkoutSlotGroup {
@@ -817,16 +929,19 @@ private fun ExerciseSlotRow(
     locationsById: Map<String, List<ExerciseLocation>>,
     doneExercises: Set<String>,
     supersetLabel: String? = null,
+    planViewModel: WorkoutPlanViewModel? = null,
     onPageSelected: (page: Int) -> Unit,
     onEdit: (exerciseId: String, displayName: String, log: ExerciseLogState) -> Unit,
-    onToggleDone: (exerciseId: String) -> Unit
+    onToggleDone: (exerciseId: String) -> Unit,
+    onAddTemporary: () -> Unit,
+    onRemoveTemporary: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        val pageCount = slot.exerciseIds.size
-        if (pageCount == 0) return
+        val pageCount = slot.exerciseIds.size + 1
+        if (slot.exerciseIds.isEmpty()) return
 
         val pagerState = rememberPagerState(
             initialPage = slotState.selectedPage.coerceIn(0, pageCount - 1),
@@ -850,40 +965,94 @@ private fun ExerciseSlotRow(
                 }
         }
 
-        // Feature 2+3: Equal-height cards + edge peek for adjacent items
-        // contentPadding creates the peek gap; height(IntrinsicSize.Max) equalises card heights
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 24.dp),
             pageSpacing = 12.dp
         ) { pageIndex ->
-            val exerciseId = slotState.pageBindings.getOrNull(pageIndex) ?: slot.exerciseIds[pageIndex]
-            val def = workoutPlan.catalog[exerciseId]
-            val displayName = def?.name ?: exerciseId
-            val log = exerciseLogs[exerciseId]
-                ?: (def?.let { defaultExerciseLog(it) }
-                    ?: return@HorizontalPager)
-            val isMainVariation = exerciseId == slot.mainExerciseId
-            val otherDayNames = locationsById[exerciseId]
-                ?.filter { it.dayKey != dayKey }
-                ?.map { it.dayKey }
-                ?.distinct()
-                ?.sorted()
-                .orEmpty()
-            val isDone = exerciseId in doneExercises
+            if (pageIndex < slot.exerciseIds.size) {
+                val exerciseId = slotState.pageBindings.getOrNull(pageIndex) ?: slot.exerciseIds[pageIndex]
+                val def = workoutPlan.catalog[exerciseId]
+                val displayName = def?.name ?: exerciseId
+                val log = exerciseLogs[exerciseId]
+                    ?: (def?.let { defaultExerciseLog(it) }
+                        ?: return@HorizontalPager)
+                val isMainVariation = exerciseId == slot.mainExerciseId
+                val otherDayNames = locationsById[exerciseId]
+                    ?.filter { it.dayKey != dayKey }
+                    ?.map { it.dayKey }
+                    ?.distinct()
+                    ?.sorted()
+                    .orEmpty()
+                val isDone = exerciseId in doneExercises
 
-            VariationCard(
-                displayName = displayName,
-                log = log,
-                isMainVariation = isMainVariation,
-                linkedOtherDayNames = otherDayNames,
-                isDone = isDone,
-                supersetLabel = supersetLabel,
-                onEditClick = { onEdit(exerciseId, displayName, log) },
-                onToggleDone = { onToggleDone(exerciseId) },
-                modifier = Modifier.height(200.dp)
-            )
+                VariationCard(
+                    displayName = displayName,
+                    log = log,
+                    isMainVariation = isMainVariation,
+                    isTemporary = false,
+                    linkedOtherDayNames = otherDayNames,
+                    isDone = isDone,
+                    supersetLabel = supersetLabel,
+                    onEditClick = { onEdit(exerciseId, displayName, log) },
+                    onToggleDone = { onToggleDone(exerciseId) },
+                    modifier = Modifier.height(200.dp)
+                )
+            } else {
+                // Temporary substitute slot (scrolled all the way to the right)
+                val tempId = slotState.temporaryExerciseId
+                if (tempId == null) {
+                    AddTemporaryCard(
+                        onClick = onAddTemporary,
+                        modifier = Modifier.height(200.dp)
+                    )
+                } else {
+                    val def = workoutPlan.catalog[tempId]
+                        ?: planViewModel?.plan?.value?.findExercise(tempId)?.let { catEx ->
+                            ExerciseDefinition(
+                                id = catEx.id,
+                                name = catEx.name,
+                                sets = catEx.defaultSets.toString(),
+                                reps = catEx.defaultReps,
+                                load = catEx.defaultLoad,
+                                duration = null,
+                                intensity = null,
+                                isTimed = catEx.isTimed,
+                                defaultTime = catEx.defaultTime,
+                                isBodyweight = catEx.isBodyweight,
+                                weightUnit = catEx.weightUnit,
+                                usesStraps = catEx.usesStraps,
+                                defaultNotes = catEx.defaultNotes
+                            )
+                        }
+                    val resolvedDef = def ?: ExerciseDefinition(
+                        id = tempId,
+                        name = tempId,
+                        sets = "3",
+                        reps = "10",
+                        load = ""
+                    )
+                    val displayName = resolvedDef.name
+                    val log = exerciseLogs[tempId] ?: defaultExerciseLog(resolvedDef)
+                    val isDone = tempId in doneExercises
+
+                    VariationCard(
+                        displayName = displayName,
+                        log = log,
+                        isMainVariation = false,
+                        isTemporary = true,
+                        linkedOtherDayNames = emptyList(),
+                        isDone = isDone,
+                        supersetLabel = supersetLabel,
+                        onEditClick = { onEdit(tempId, displayName, log) },
+                        onToggleDone = { onToggleDone(tempId) },
+                        onChangeTemporaryClick = onAddTemporary,
+                        onRemoveTemporaryClick = onRemoveTemporary,
+                        modifier = Modifier.height(200.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -893,24 +1062,34 @@ private fun VariationCard(
     displayName: String,
     log: ExerciseLogState,
     isMainVariation: Boolean,
+    isTemporary: Boolean = false,
     linkedOtherDayNames: List<String>,
     isDone: Boolean,
     supersetLabel: String? = null,
     onEditClick: () -> Unit,
     onToggleDone: () -> Unit,
+    onChangeTemporaryClick: (() -> Unit)? = null,
+    onRemoveTemporaryClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val colors = if (isMainVariation) {
-        CardDefaults.cardColors(
+    val colors = when {
+        isTemporary -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+        )
+        isMainVariation -> CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
         )
-    } else {
-        CardDefaults.cardColors(
+        else -> CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+
+    val border = if (isTemporary) {
+        BorderStroke(1.5.dp, MaterialTheme.colorScheme.tertiary)
+    } else null
 
     Card(
         onClick = onEditClick,
@@ -918,8 +1097,9 @@ private fun VariationCard(
             .fillMaxWidth()
             .fillMaxHeight(),
         colors = colors,
+        border = border,
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isMainVariation) 4.dp else 1.dp
+            defaultElevation = if (isMainVariation || isTemporary) 4.dp else 1.dp
         )
     ) {
         Column(
@@ -942,7 +1122,14 @@ private fun VariationCard(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    if (!isMainVariation) {
+                    if (isTemporary) {
+                        Text(
+                            text = "TEMPORARY SUBSTITUTE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else if (!isMainVariation) {
                         Text(
                             text = "ALTERNATIVE",
                             style = MaterialTheme.typography.labelSmall,
@@ -958,16 +1145,48 @@ private fun VariationCard(
                         modifier = Modifier.alpha(if (isDone) 0.6f else 1f)
                     )
                 }
-                IconButton(onClick = onToggleDone) {
-                    Icon(
-                        imageVector = if (isDone) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                        contentDescription = if (isDone) "Mark as not done" else "Mark as done",
-                        tint = if (isDone) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isTemporary && onChangeTemporaryClick != null) {
+                        IconButton(
+                            onClick = onChangeTemporaryClick,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Change temporary substitute",
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
-                    )
+                    }
+                    if (isTemporary && onRemoveTemporaryClick != null) {
+                        IconButton(
+                            onClick = onRemoveTemporaryClick,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Remove temporary substitute",
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = onToggleDone,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isDone) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                            contentDescription = if (isDone) "Mark as not done" else "Mark as done",
+                            tint = if (isDone) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            }
+                        )
+                    }
                 }
             }
 
@@ -1036,6 +1255,263 @@ private fun VariationCard(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddTemporaryCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(40.dp)
+            ) {
+                androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Temporary Substitute",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Add Temporary Substitute",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Tap to pick an alternate exercise",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TemporaryExercisePickerSheet(
+    allExercises: List<CategoryExercise>,
+    categories: List<Category>,
+    currentTemporaryId: String?,
+    onDismiss: () -> Unit,
+    onSelectExercise: (CategoryExercise) -> Unit,
+    onCreateNewClick: () -> Unit,
+    onClearTemporary: (() -> Unit)? = null
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategoryId by remember { mutableStateOf<String?>(null) }
+
+    val filteredExercises = remember(allExercises, searchQuery, selectedCategoryId) {
+        allExercises.filter { ex ->
+            val matchesCategory = selectedCategoryId == null || categories.find { it.id == selectedCategoryId }?.exercises?.any { it.id == ex.id } == true
+            val matchesSearch = searchQuery.isBlank() || ex.name.contains(searchQuery, ignoreCase = true)
+            matchesCategory && matchesSearch
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Choose Temporary Substitute",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Substitute an exercise for this slot today",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Button(
+                    onClick = onCreateNewClick,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Create New", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search exercise library...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true
+            )
+
+            if (categories.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedCategoryId == null,
+                        onClick = { selectedCategoryId = null },
+                        label = { Text("All (${allExercises.size})") }
+                    )
+                    categories.forEach { cat ->
+                        FilterChip(
+                            selected = selectedCategoryId == cat.id,
+                            onClick = {
+                                selectedCategoryId = if (selectedCategoryId == cat.id) null else cat.id
+                            },
+                            label = { Text("${cat.name} (${cat.exercises.size})") }
+                        )
+                    }
+                }
+            }
+
+            if (currentTemporaryId != null && onClearTemporary != null) {
+                OutlinedButton(
+                    onClick = onClearTemporary,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Clear Temporary Substitute")
+                }
+            }
+
+            HorizontalDivider()
+
+            if (filteredExercises.isEmpty()) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (searchQuery.isNotBlank()) "No exercises match \"$searchQuery\"" else "No exercises found",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedButton(onClick = onCreateNewClick) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Create \"${searchQuery.ifBlank { "New Exercise" }}\"")
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(filteredExercises, key = { it.id }) { exercise ->
+                        val isSelected = exercise.id == currentTemporaryId
+                        Card(
+                            onClick = { onSelectExercise(exercise) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                }
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = exercise.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    val catName = categories.find { cat -> cat.exercises.any { it.id == exercise.id } }?.name
+                                    val subText = buildString {
+                                        if (catName != null) append(catName)
+                                        if (exercise.isTimed) {
+                                            if (isNotEmpty()) append(" • ")
+                                            append("Timed (${exercise.defaultTime})")
+                                        } else if (exercise.defaultSets > 0) {
+                                            if (isNotEmpty()) append(" • ")
+                                            append("${exercise.defaultSets} sets × ${exercise.defaultReps}")
+                                        }
+                                    }
+                                    if (subText.isNotEmpty()) {
+                                        Text(
+                                            text = subText,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1131,6 +1607,26 @@ private fun QuickEditExerciseSheet(
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (!initialLog.isCardio) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = !isTimed,
+                        onClick = { isTimed = false },
+                        label = { Text("Sets & Reps") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = isTimed,
+                        onClick = { isTimed = true },
+                        label = { Text("Timed Hold (Isometric)") },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }

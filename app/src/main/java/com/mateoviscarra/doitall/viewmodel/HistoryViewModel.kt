@@ -18,6 +18,9 @@ class HistoryViewModel @JvmOverloads constructor(
     fun recordSession(session: WorkoutSessionRecord): WorkoutSessionRecord =
         repository.recordSession(session)
 
+    fun updateSession(session: WorkoutSessionRecord) =
+        repository.updateSession(session)
+
     fun deleteSession(sessionId: String) =
         repository.deleteSession(sessionId)
 

@@ -98,6 +98,14 @@ class WorkoutHistoryRepository(
         return session
     }
 
+    fun updateSession(session: WorkoutSessionRecord) {
+        val updated = _sessions.value.map { if (it.id == session.id) session else it }
+        _sessions.value = updated
+        scope.launch {
+            persistSessions(updated)
+        }
+    }
+
     fun deleteSession(sessionId: String) {
         val updated = _sessions.value.filter { it.id != sessionId }
         _sessions.value = updated

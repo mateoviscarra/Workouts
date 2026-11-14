@@ -106,9 +106,13 @@ private fun DayLogState.toDayJson(): JSONObject {
 private fun SlotLogState.toSlotJson(): JSONObject {
     val arr = JSONArray()
     pageBindings.forEach { arr.put(it) }
-    return JSONObject()
+    val obj = JSONObject()
         .put("selectedPage", selectedPage)
         .put("bindings", arr)
+    if (temporaryExerciseId != null) {
+        obj.put("tempId", temporaryExerciseId)
+    }
+    return obj
 }
 
 private fun parseDayLogState(json: JSONObject): DayLogState {
@@ -133,8 +137,10 @@ private fun parseSlotLogState(json: JSONObject): SlotLogState {
     val selectedPage = json.optInt("selectedPage", 0)
     val arr = json.optJSONArray("bindings") ?: JSONArray()
     val bindings = List(arr.length()) { arr.optString(it) }
+    val tempId = json.optString("tempId").takeIf { it.isNotBlank() }
     return SlotLogState(
         selectedPage = selectedPage,
-        pageBindings = bindings
+        pageBindings = bindings,
+        temporaryExerciseId = tempId
     )
 }

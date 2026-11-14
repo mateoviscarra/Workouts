@@ -38,12 +38,15 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -53,6 +56,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -74,6 +78,7 @@ import com.mateoviscarra.doitall.data.formatExerciseWeight
 import com.mateoviscarra.doitall.data.persist.WeightUnit
 import com.mateoviscarra.doitall.viewmodel.HistoryViewModel
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,6 +93,7 @@ fun HistoryScreen(
     val prsMap by viewModel.personalRecords.collectAsStateWithLifecycle()
 
     var sessionToDelete by remember { mutableStateOf<WorkoutSessionRecord?>(null) }
+    var sessionToEdit by remember { mutableStateOf<WorkoutSessionRecord?>(null) }
     var prToEdit by remember { mutableStateOf<PersonalRecord?>(null) }
     var showAddPRDialog by remember { mutableStateOf(false) }
     var prToDelete by remember { mutableStateOf<PersonalRecord?>(null) }
@@ -145,6 +151,7 @@ fun HistoryScreen(
             when (selectedTab) {
                 0 -> SessionsTab(
                     sessions = sessions,
+                    onEditSession = { sessionToEdit = it },
                     onDeleteSession = { sessionToDelete = it }
                 )
                 1 -> PersonalRecordsTab(
@@ -155,6 +162,17 @@ fun HistoryScreen(
                 )
             }
         }
+    }
+
+    sessionToEdit?.let { session ->
+        EditWorkoutSessionDialog(
+            session = session,
+            onDismiss = { sessionToEdit = null },
+            onConfirm = { updated ->
+                viewModel.updateSession(updated)
+                sessionToEdit = null
+            }
+        )
     }
 
     sessionToDelete?.let { session ->
@@ -229,6 +247,7 @@ fun HistoryScreen(
 @Composable
 private fun SessionsTab(
     sessions: List<WorkoutSessionRecord>,
+    onEditSession: (WorkoutSessionRecord) -> Unit,
     onDeleteSession: (WorkoutSessionRecord) -> Unit
 ) {
     if (sessions.isEmpty()) {
@@ -269,6 +288,7 @@ private fun SessionsTab(
             items(sessions, key = { it.id }) { session ->
                 SessionCard(
                     session = session,
+                    onEdit = { onEditSession(session) },
                     onDelete = { onDeleteSession(session) }
                 )
             }
@@ -279,6 +299,7 @@ private fun SessionsTab(
 @Composable
 private fun SessionCard(
     session: WorkoutSessionRecord,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -315,6 +336,14 @@ private fun SessionCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onEdit) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "Edit session",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+
                     IconButton(onClick = onDelete) {
                         Icon(
                             Icons.Default.Delete,
@@ -778,6 +807,420 @@ private fun AddEditPRDialog(
                 enabled = name.isNotBlank()
             ) {
                 Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditWorkoutSessionDialog(
+    session: WorkoutSessionRecord,
+    onDismiss: () -> Unit,
+    onConfirm: (WorkoutSessionRecord) -> Unit
+) {
+    var dayTitle by remember { mutableStateOf(session.dayTitle) }
+    var dateIso by remember { mutableStateOf(session.dateIso) }
+    var durationMinutesText by remember { mutableStateOf(session.durationMinutes.toString()) }
+    var notes by remember { mutableStateOf(session.notes) }
+    var exercises by remember { mutableStateOf(session.exercises) }
+
+    var exerciseToEditIndex by remember { mutableStateOf<Int?>(null) }
+    var showAddExerciseDialog by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Workout Session") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = dayTitle,
+                    onValueChange = { dayTitle = it },
+                    label = { Text("Workout Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = dateIso,
+                        onValueChange = { dateIso = it },
+                        label = { Text("Date (YYYY-MM-DD)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { showDatePicker = true }) {
+                        Icon(Icons.Default.History, contentDescription = "Pick Date")
+                    }
+                }
+
+                OutlinedTextField(
+                    value = durationMinutesText,
+                    onValueChange = { durationMinutesText = it },
+                    label = { Text("Duration (minutes)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Session Notes") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                HorizontalDivider()
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Completed Exercises (${exercises.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    TextButton(onClick = { showAddExerciseDialog = true }) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add")
+                    }
+                }
+
+                if (exercises.isEmpty()) {
+                    Text(
+                        text = "No exercises in this session.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    exercises.forEachIndexed { index, ex ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = ex.exerciseName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    val summary = if (ex.isCardio) {
+                                        buildString {
+                                            append(ex.repsSummary.ifBlank { "Cardio" })
+                                            if (ex.weight.isNotBlank()) append(" • ${ex.weight}")
+                                        }
+                                    } else {
+                                        val weightStr = formatExerciseWeight(
+                                            weight = ex.weight,
+                                            isBodyweight = ex.isBodyweight,
+                                            unitLabel = ex.weightUnit.name.lowercase(),
+                                            shortBwPrefix = true
+                                        )
+                                        "${ex.sets} sets × ${ex.repsSummary} @ $weightStr"
+                                    }
+                                    Text(
+                                        text = summary,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Row {
+                                    IconButton(
+                                        onClick = { exerciseToEditIndex = index },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            exercises = exercises.filterIndexed { i, _ -> i != index }
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val duration = durationMinutesText.toIntOrNull()?.coerceAtLeast(1) ?: session.durationMinutes
+                    onConfirm(
+                        session.copy(
+                            dayTitle = dayTitle.trim().ifEmpty { session.dayTitle },
+                            dateIso = dateIso.trim().ifEmpty { session.dateIso },
+                            durationMinutes = duration,
+                            notes = notes.trim(),
+                            exercises = exercises
+                        )
+                    )
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+
+    if (showDatePicker) {
+        val initialEpochMillis = remember(dateIso) {
+            try {
+                LocalDate.parse(dateIso).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+            } catch (_: Exception) {
+                System.currentTimeMillis()
+            }
+        }
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialEpochMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val selectedDate = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(ZoneId.of("UTC"))
+                            .toLocalDate()
+                        dateIso = selectedDate.toString()
+                    }
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showAddExerciseDialog) {
+        EditCompletedExerciseDialog(
+            initialExercise = null,
+            onDismiss = { showAddExerciseDialog = false },
+            onConfirm = { newEx ->
+                exercises = exercises + newEx
+                showAddExerciseDialog = false
+            }
+        )
+    }
+
+    exerciseToEditIndex?.let { idx ->
+        if (idx in exercises.indices) {
+            EditCompletedExerciseDialog(
+                initialExercise = exercises[idx],
+                onDismiss = { exerciseToEditIndex = null },
+                onConfirm = { updatedEx ->
+                    exercises = exercises.toMutableList().also { it[idx] = updatedEx }
+                    exerciseToEditIndex = null
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditCompletedExerciseDialog(
+    initialExercise: CompletedExerciseRecord?,
+    onDismiss: () -> Unit,
+    onConfirm: (CompletedExerciseRecord) -> Unit
+) {
+    var name by remember { mutableStateOf(initialExercise?.exerciseName ?: "") }
+    var setsText by remember { mutableStateOf((initialExercise?.sets ?: 3).toString()) }
+    var repsSummary by remember { mutableStateOf(initialExercise?.repsSummary ?: "10, 10, 10") }
+    var weightText by remember { mutableStateOf(initialExercise?.weight ?: "") }
+    var weightUnit by remember { mutableStateOf(initialExercise?.weightUnit ?: WeightUnit.KG) }
+    var isBodyweight by remember { mutableStateOf(initialExercise?.isBodyweight ?: false) }
+    var usesStraps by remember { mutableStateOf(initialExercise?.usesStraps ?: false) }
+    var isCardio by remember { mutableStateOf(initialExercise?.isCardio ?: false) }
+    var comment by remember { mutableStateOf(initialExercise?.comment ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initialExercise == null) "Add Completed Exercise" else "Edit Exercise Log") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Exercise Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = isCardio, onCheckedChange = { isCardio = it })
+                    Text("Cardio Exercise", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                if (isCardio) {
+                    OutlinedTextField(
+                        value = repsSummary,
+                        onValueChange = { repsSummary = it },
+                        label = { Text("Cardio Time (e.g. 20 min)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = weightText,
+                        onValueChange = { weightText = it },
+                        label = { Text("Intensity / Speed / Level (e.g. 8.5 km/h, Level 7)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = setsText,
+                            onValueChange = { setsText = it },
+                            label = { Text("Sets") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(0.8f)
+                        )
+                        OutlinedTextField(
+                            value = repsSummary,
+                            onValueChange = { repsSummary = it },
+                            label = { Text("Reps (e.g. 10, 10, 8)") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1.2f)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = weightText,
+                        onValueChange = { weightText = it },
+                        label = { Text(if (isBodyweight) "Added Weight" else "Weight") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = weightUnit == WeightUnit.KG,
+                            onClick = { weightUnit = WeightUnit.KG },
+                            label = { Text("kg") }
+                        )
+                        FilterChip(
+                            selected = weightUnit == WeightUnit.LBS,
+                            onClick = { weightUnit = WeightUnit.LBS },
+                            label = { Text("lbs") }
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = isBodyweight,
+                                onCheckedChange = { isBodyweight = it }
+                            )
+                            Text("Bodyweight", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = usesStraps,
+                            onCheckedChange = { usesStraps = it }
+                        )
+                        Text("Used Lifting Straps", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text("Notes / Comment (optional)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        val sets = setsText.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                        val numWeight = weightText.toDoubleOrNull() ?: 0.0
+                        val id = initialExercise?.exerciseId ?: name.lowercase().trim().replace(Regex("""\s+"""), "_")
+                        onConfirm(
+                            CompletedExerciseRecord(
+                                exerciseId = id,
+                                exerciseName = name.trim(),
+                                sets = sets,
+                                repsSummary = repsSummary.trim(),
+                                weight = weightText.trim(),
+                                numericWeight = numWeight,
+                                weightUnit = weightUnit,
+                                isBodyweight = isBodyweight,
+                                usesStraps = usesStraps,
+                                comment = comment.trim(),
+                                isPR = initialExercise?.isPR ?: false,
+                                isCardio = isCardio
+                            )
+                        )
+                    }
+                },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Done")
             }
         },
         dismissButton = {

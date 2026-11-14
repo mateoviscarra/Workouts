@@ -47,5 +47,7 @@ data class DayLogState(
 data class SlotLogState(
     val selectedPage: Int,
     /** [exerciseId] per carousel page; must align with slot size from plan. */
-    val pageBindings: List<String>
+    val pageBindings: List<String>,
+    /** Optional temporary substitute exercise selected for this slot. */
+    val temporaryExerciseId: String? = null
 )

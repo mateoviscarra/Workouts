@@ -479,7 +479,7 @@ private fun ExerciseLibraryCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddEditExerciseDialog(
+fun AddEditExerciseDialog(
     categories: List<Category>,
     initialCategory: Category?,
     initialExercise: CategoryExercise?,

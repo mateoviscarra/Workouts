@@ -75,6 +75,14 @@ class WorkoutDetailViewModel @JvmOverloads constructor(
         }
     }
 
+    fun setTemporaryExercise(slotIndex: Int, exerciseId: String?) {
+        val dayKey = currentDayKey ?: return
+        val day = currentWorkoutDay ?: return
+        viewModelScope.launch {
+            store.setTemporaryExercise(dayKey, day, slotIndex, exerciseId)
+        }
+    }
+
     fun updateExerciseLog(exerciseId: String, log: ExerciseLogState) {
         viewModelScope.launch {
             store.updateExerciseLog(exerciseId, log)

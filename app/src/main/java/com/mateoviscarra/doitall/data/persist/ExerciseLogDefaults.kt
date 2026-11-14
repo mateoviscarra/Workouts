@@ -82,12 +82,21 @@ fun defaultDayLog(day: WorkoutDay): DayLogState {
 fun normalizeSlotState(slot: WorkoutSlot, persisted: SlotLogState?): SlotLogState {
     val size = slot.exerciseIds.size
     val defaultBindings = slot.exerciseIds.toList()
+    val tempId = persisted?.temporaryExerciseId
+    val maxPage = size
+
     if (persisted == null || persisted.pageBindings.size != size || persisted.pageBindings.toSet() != defaultBindings.toSet()) {
-        return SlotLogState(selectedPage = 0, pageBindings = defaultBindings)
+        val selected = persisted?.selectedPage?.coerceIn(0, maxPage) ?: 0
+        return SlotLogState(
+            selectedPage = selected,
+            pageBindings = defaultBindings,
+            temporaryExerciseId = tempId
+        )
     }
     return SlotLogState(
-        selectedPage = persisted.selectedPage.coerceIn(0, (size - 1).coerceAtLeast(0)),
-        pageBindings = persisted.pageBindings
+        selectedPage = persisted.selectedPage.coerceIn(0, maxPage),
+        pageBindings = persisted.pageBindings,
+        temporaryExerciseId = tempId
     )
 }
 
@@ -106,7 +115,39 @@ fun dayLogFromPersist(root: PersistRootV2, dayKey: String, day: WorkoutDay): Day
 fun mergedExerciseLogs(plan: WorkoutPlan, root: PersistRootV2): Map<String, ExerciseLogState> {
     val out = linkedMapOf<String, ExerciseLogState>()
     for (def in plan.catalog.values) {
-        out[def.id] = root.logs[def.id] ?: defaultExerciseLog(def)
+        val persisted = root.logs[def.id]
+        if (persisted == null) {
+            out[def.id] = defaultExerciseLog(def)
+        } else {
+            val isTimed = def.isTimed || persisted.isTimed ||
+                    def.name.contains("plank", ignoreCase = true) ||
+                    def.id.contains("plank", ignoreCase = true) ||
+                    def.name.contains("isometric", ignoreCase = true)
+
+            val cleanedWeight = if (persisted.weight.equals("sec", ignoreCase = true) ||
+                persisted.weight.equals("min", ignoreCase = true)
+            ) {
+                ""
+            } else {
+                persisted.weight
+            }
+
+            val cleanedTimeTarget = if (isTimed) {
+                if (persisted.timeTarget.isBlank() || persisted.timeTarget == "60s") {
+                    if (def.defaultTime.isNotBlank()) def.defaultTime else if (def.reps.isNotBlank()) def.reps else "60s"
+                } else {
+                    persisted.timeTarget
+                }
+            } else {
+                persisted.timeTarget
+            }
+
+            out[def.id] = persisted.copy(
+                isTimed = isTimed,
+                weight = cleanedWeight,
+                timeTarget = cleanedTimeTarget
+            )
+        }
     }
     return out
 }

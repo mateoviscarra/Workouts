@@ -53,9 +53,31 @@ class WorkoutStateStore(private val context: Context) {
             val root = parsePersistRootV2(prefs[JSON_KEY_V2])
             val current = dayLogFromPersist(root, dayKey, day)
             val slot = day.slots.getOrNull(slotIndex) ?: return@edit
-            val max = (slot.exerciseIds.size - 1).coerceAtLeast(0)
+            val max = slot.exerciseIds.size
             val nextDay = current.updateSlot(slotIndex) {
                 it.copy(selectedPage = page.coerceIn(0, max))
+            }
+            prefs[JSON_KEY_V2] = root.withDay(dayKey, nextDay).toJsonString()
+        }
+    }
+
+    suspend fun setTemporaryExercise(dayKey: String, day: WorkoutDay, slotIndex: Int, exerciseId: String?) {
+        dataStore.edit { prefs ->
+            val root = parsePersistRootV2(prefs[JSON_KEY_V2])
+            val current = dayLogFromPersist(root, dayKey, day)
+            val slot = day.slots.getOrNull(slotIndex) ?: return@edit
+            val nextDay = current.updateSlot(slotIndex) { slotLog ->
+                if (exerciseId != null) {
+                    slotLog.copy(
+                        temporaryExerciseId = exerciseId,
+                        selectedPage = slot.exerciseIds.size
+                    )
+                } else {
+                    slotLog.copy(
+                        temporaryExerciseId = null,
+                        selectedPage = slotLog.selectedPage.coerceIn(0, (slot.exerciseIds.size - 1).coerceAtLeast(0))
+                    )
+                }
             }
             prefs[JSON_KEY_V2] = root.withDay(dayKey, nextDay).toJsonString()
         }
