@@ -56,6 +56,7 @@ class WorkoutPlanViewModel @JvmOverloads constructor(
     fun deleteDay(dayName: String) = repository.deleteDay(dayName)
     fun updateDay(day: NewWorkoutDay) = repository.updateDay(day)
     fun updateDay(originalName: String, day: NewWorkoutDay) = repository.updateDay(originalName, day)
+    fun moveDay(fromIndex: Int, toIndex: Int) = repository.moveDay(fromIndex, toIndex)
     fun savePlan(newPlan: NewWorkoutPlan) = repository.savePlan(newPlan)
     fun reloadPlan() = repository.reloadPlan()
 }

@@ -45,6 +45,7 @@ fun WorkoutsScreen(
     onCustomClick: () -> Unit,
     onEditRoutineClick: (Int) -> Unit,
     onNewRoutineClick: () -> Unit,
+    onMoveDay: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     onAddExercise: (categoryId: String, CategoryExercise) -> Unit,
     onEditExercise: (categoryId: String, CategoryExercise) -> Unit,
     onDeleteExercise: (categoryId: String, exerciseId: String) -> Unit,
@@ -130,6 +131,7 @@ fun WorkoutsScreen(
                         onCustomClick = onCustomClick,
                         onEditRoutineClick = onEditRoutineClick,
                         onNewRoutineClick = onNewRoutineClick,
+                        onMoveDay = onMoveDay,
                         showHeader = false
                     )
                 }

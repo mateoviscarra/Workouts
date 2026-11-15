@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.mateoviscarra.doitall.data.DriveSyncManager
 import com.mateoviscarra.doitall.data.WorkoutDay
 import com.mateoviscarra.doitall.data.WorkoutPlan
 import kotlinx.coroutines.flow.Flow
@@ -81,6 +82,7 @@ class WorkoutStateStore(private val context: Context) {
             }
             prefs[JSON_KEY_V2] = root.withDay(dayKey, nextDay).toJsonString()
         }
+        DriveSyncManager.scheduleAutoSync(context, "Temporary exercise updated")
     }
 
     suspend fun updateExerciseLog(exerciseId: String, log: ExerciseLogState) {
@@ -90,6 +92,7 @@ class WorkoutStateStore(private val context: Context) {
             logs[exerciseId] = sanitizeExerciseLog(log)
             prefs[JSON_KEY_V2] = root.copy(logs = logs).toJsonString()
         }
+        DriveSyncManager.scheduleAutoSync(context, "Exercise log updated")
     }
 
     suspend fun updateExerciseLogAndBinding(
@@ -117,6 +120,7 @@ class WorkoutStateStore(private val context: Context) {
                 days = root.days + (dayKey to nextDay)
             ).toJsonString()
         }
+        DriveSyncManager.scheduleAutoSync(context, "Exercise log updated")
     }
 
     /** Toggles the done state for [exerciseId] on [dayKey]. */
@@ -129,6 +133,7 @@ class WorkoutStateStore(private val context: Context) {
             val nextDay = current.copy(doneExercises = done)
             prefs[JSON_KEY_V2] = root.withDay(dayKey, nextDay).toJsonString()
         }
+        DriveSyncManager.scheduleAutoSync(context, "Workout set progress updated")
     }
 
     /** Clears all done entries for [dayKey]. */
@@ -139,6 +144,7 @@ class WorkoutStateStore(private val context: Context) {
             val nextDay = current.copy(doneExercises = emptySet())
             prefs[JSON_KEY_V2] = root.withDay(dayKey, nextDay).toJsonString()
         }
+        DriveSyncManager.scheduleAutoSync(context, "Workout progress cleared")
     }
 
     /**
@@ -160,6 +166,7 @@ class WorkoutStateStore(private val context: Context) {
                 days = updatedDays
             ).toJsonString()
         }
+        DriveSyncManager.scheduleAutoSync(context, "Plan imported")
     }
 }
 

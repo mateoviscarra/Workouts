@@ -14,6 +14,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -101,6 +103,8 @@ class DataBackupManager(private val context: Context) {
     }
 
     fun createUnifiedBackupJson(): String {
+        historyRepo.reloadFromPrefs()
+        nutritionRepo.reloadFromPrefs()
         val root = JSONObject()
         root.put("version", 1)
         root.put("exportedAt", System.currentTimeMillis())
@@ -273,6 +277,215 @@ class DataBackupManager(private val context: Context) {
     "weightLogs": []
   }
 }""")
+        sb.appendLine("```")
+        return sb.toString()
+    }
+
+    /**
+     * Generates a single comprehensive document optimized for Google Docs + NotebookLM indexing:
+     * combines athlete profile & goals, daily nutrition targets, live training & nutrition summaries,
+     * app mechanics/JSON guide, and the complete raw backup JSON.
+     */
+    fun createNotebookLmDocMarkdown(): String {
+        val backupJson = createUnifiedBackupJson()
+        val backupRoot = runCatching { JSONObject(backupJson) }.getOrNull()
+        val profile = nutritionRepo.userProfile.value
+        val age = profile.calculateAge()
+        val goals = nutritionRepo.goals.value
+        val plan = workoutStore.loadPlanOnce() ?: WorkoutRepository.loadWorkoutPlan(context)
+        val persistRoot = runBlocking { stateStore.loadPersistRoot() }
+        val sessions = historyRepo.sessions.value.sortedByDescending { it.dateIso }
+        val prs = historyRepo.personalRecords.value.values.sortedByDescending { it.dateIso }
+        val foodLogs = nutritionRepo.foodLogs.value
+        val savedMeals = nutritionRepo.savedMeals.value
+        val weightLogs = nutritionRepo.weightLogs.value.sortedByDescending { it.dateIso }
+        val syncedAt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.US))
+
+        val sb = StringBuilder()
+        sb.appendLine("# DoItAll — Live Coach Context & Data")
+        sb.appendLine()
+        sb.appendLine("Last synced from DoItAll Android App: $syncedAt")
+        sb.appendLine("Use this document as the authoritative source of truth for the athlete's current stats, active workout split, training weights, workout history, body weight trend, nutrition intake, and strict DoItAll JSON schema.")
+        sb.appendLine()
+
+        // Section 1: Profile & Targets
+        sb.appendLine("## 1. Athlete Profile, Nutrition Targets & Training Goals")
+        sb.appendLine("- Sex: ${profile.sex.ifBlank { "Not specified" }}")
+        val birthStr = when {
+            profile.birthDateIso.isNotBlank() && age != null -> "${profile.birthDateIso} (Age: $age)"
+            profile.birthDateIso.isNotBlank() -> profile.birthDateIso
+            else -> "Not specified"
+        }
+        sb.appendLine("- Birth Date / Age: $birthStr")
+        sb.appendLine("- Height: ${if (profile.heightCm > 0f) "${String.format(Locale.US, "%.1f", profile.heightCm).removeSuffix(".0")} cm" else "Not specified"}")
+        val latestWeight = weightLogs.firstOrNull()
+        val weightStr = if (latestWeight != null) {
+            "${latestWeight.weight} ${latestWeight.unit.name.lowercase(Locale.ROOT)} (logged ${latestWeight.dateIso})"
+        } else {
+            "No weight logs recorded"
+        }
+        sb.appendLine("- Latest Bodyweight: $weightStr")
+        sb.appendLine("- Target Bodyweight: ${if (profile.targetWeightKg > 0f) "${String.format(Locale.US, "%.1f", profile.targetWeightKg).removeSuffix(".0")} kg" else "Not specified"}")
+        sb.appendLine("- Daily Nutrition Targets: ${goals.calorieTarget} kcal | Protein: ${goals.proteinTargetGrams.toInt()} g | Carbs: ${goals.carbsTargetGrams.toInt()} g | Fat: ${goals.fatTargetGrams.toInt()} g")
+        sb.appendLine("- Fitness Goals & Context: ${profile.fitnessGoalSummary.ifBlank { "Not specified" }}")
+        sb.appendLine()
+
+        // Section 2: Active Workout Split
+        sb.appendLine("## 2. Active Workout Split & Current Working Weights")
+        val exerciseCatalogMap = plan.allExercises().associateBy { it.id }
+        plan.days.forEachIndexed { idx, day ->
+            sb.appendLine("### ${idx + 1}. ${day.day}")
+            if (day.muscleGroups.isNotEmpty()) {
+                sb.appendLine("Muscle Groups: ${day.muscleGroups.joinToString(", ")}")
+            }
+            if (day.notes.isNotEmpty()) {
+                sb.appendLine("Notes: ${day.notes.joinToString(" | ")}")
+            }
+            day.exercises.forEachIndexed { slotIdx, slot ->
+                val exDef = exerciseCatalogMap[slot.exerciseId]
+                val liveLog = persistRoot.logs[slot.exerciseId]
+                val name = exDef?.name ?: slot.exerciseId
+                val supersetTag = if (!slot.supersetId.isNullOrBlank()) {
+                    if (slot.isSequential) " [Sequential Combo: ${slot.supersetId}]" else " [Superset: ${slot.supersetId}]"
+                } else ""
+                val metrics = if (liveLog != null) {
+                    if (liveLog.isCardio) {
+                        val dur = liveLog.timeTarget.ifBlank { "${liveLog.sets} min" }
+                        val intensity = liveLog.weight.takeIf { it.isNotBlank() }?.let { " | Intensity: $it" } ?: ""
+                        "$dur$intensity"
+                    } else if (liveLog.isTimed) {
+                        val t = liveLog.timeTarget.ifBlank { exDef?.defaultTime ?: "60s" }
+                        "${liveLog.sets} sets x $t"
+                    } else {
+                        val repsText = if (liveLog.usePerSetReps && !liveLog.repsPerSet.isNullOrEmpty()) {
+                            liveLog.repsPerSet.joinToString(",")
+                        } else {
+                            (liveLog.repsSingle ?: exDef?.defaultReps ?: "10").toString()
+                        }
+                        val loadText = formatExerciseWeight(
+                            weight = liveLog.weight,
+                            isBodyweight = liveLog.isBodyweight,
+                            unitLabel = liveLog.weightUnit.name.lowercase(Locale.ROOT),
+                            shortBwPrefix = false
+                        ).ifBlank { "Bodyweight" }
+                        val strapsText = if (liveLog.usesStraps) " [Straps]" else ""
+                        "${liveLog.sets} sets x $repsText reps @ $loadText$strapsText"
+                    }
+                } else {
+                    "${exDef?.defaultSets ?: 3} sets x ${exDef?.defaultReps ?: "10"} @ ${exDef?.defaultLoad ?: "Bodyweight"}"
+                }
+                val altsText = if (slot.alternatives.isNotEmpty()) {
+                    val altNames = slot.alternatives.map { id -> exerciseCatalogMap[id]?.name ?: id }
+                    " (Alts: ${altNames.joinToString(", ")})"
+                } else ""
+                val commentText = liveLog?.comment?.takeIf { it.isNotBlank() }?.let { " — Note: $it" } ?: ""
+                sb.appendLine("- Slot ${slotIdx + 1}: $name$supersetTag — $metrics$altsText$commentText")
+            }
+            sb.appendLine()
+        }
+
+        // Section 3: Recent Workout History & PRs
+        sb.appendLine("## 3. Workout History & Personal Records")
+        sb.appendLine("Total Logged Sessions: ${sessions.size}")
+        if (prs.isNotEmpty()) {
+            sb.appendLine("### Personal Records (PRs)")
+            prs.forEach { pr ->
+                val weightLabel = if (pr.isBodyweight) {
+                    if (pr.maxWeight > 0.0) "BW + ${pr.maxWeight} ${pr.weightUnit.name.lowercase(Locale.ROOT)}" else "Bodyweight"
+                } else {
+                    "${pr.maxWeight} ${pr.weightUnit.name.lowercase(Locale.ROOT)}"
+                }
+                val note = pr.note.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+                sb.appendLine("- ${pr.exerciseName}: $weightLabel x ${pr.reps} reps on ${pr.dateIso}$note")
+            }
+            sb.appendLine()
+        }
+
+        val recentSessions = sessions.take(20)
+        if (recentSessions.isNotEmpty()) {
+            sb.appendLine("### Recent Sessions (Last ${recentSessions.size})")
+            recentSessions.forEach { session ->
+                sb.appendLine("#### ${session.dateIso} — ${session.dayTitle} (${session.durationMinutes} min)")
+                if (session.notes.isNotBlank()) {
+                    sb.appendLine("Session Notes: ${session.notes}")
+                }
+                session.exercises.forEach { ex ->
+                    val line = if (ex.isCardio) {
+                        val intensity = ex.weight.takeIf { it.isNotBlank() }?.let { " @ $it" } ?: ""
+                        "- ${ex.exerciseName}: ${ex.repsSummary}$intensity"
+                    } else {
+                        val loadStr = if (ex.isBodyweight) {
+                            if (ex.weight.isNotBlank()) "BW + ${ex.weight}" else "BW"
+                        } else {
+                            if (ex.weight.isNotBlank()) "${ex.weight} ${ex.weightUnit.name.lowercase(Locale.ROOT)}" else ""
+                        }
+                        val atLoad = if (loadStr.isNotBlank()) " @ $loadStr" else ""
+                        val prFlag = if (ex.isPR) " [PR]" else ""
+                        val note = ex.comment.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""
+                        "- ${ex.exerciseName}: ${ex.sets} sets x ${ex.repsSummary}$atLoad$prFlag$note"
+                    }
+                    sb.appendLine(line)
+                }
+                sb.appendLine()
+            }
+        } else {
+            sb.appendLine("No workout sessions logged yet.")
+            sb.appendLine()
+        }
+
+        // Section 4: Nutrition Summary (Last 14 Logged Days) & Weight Trend
+        sb.appendLine("## 4. Nutrition Intake Summary & Bodyweight Trend")
+        if (weightLogs.isNotEmpty()) {
+            sb.appendLine("### Bodyweight Trend (Last ${weightLogs.take(20).size} Entries)")
+            weightLogs.take(20).forEach { w ->
+                val note = w.note.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""
+                sb.appendLine("- ${w.dateIso}: ${w.weight} ${w.unit.name.lowercase(Locale.ROOT)}$note")
+            }
+            sb.appendLine()
+        }
+
+        val logsByDate = foodLogs.groupBy { it.dateIso }.toSortedMap(compareByDescending { it })
+        val recentDates = logsByDate.keys.take(14)
+        if (recentDates.isNotEmpty()) {
+            sb.appendLine("### Daily Nutrition Logs (Last ${recentDates.size} Logged Days vs Target ${goals.calorieTarget} kcal)")
+            recentDates.forEach { date ->
+                val dayEntries = logsByDate[date].orEmpty()
+                val totalCals = dayEntries.sumOf { it.totalCalories }
+                val totalProt = dayEntries.sumOf { it.totalProtein.toDouble() }.toInt()
+                val totalCarbs = dayEntries.sumOf { it.totalCarbs.toDouble() }.toInt()
+                val totalFat = dayEntries.sumOf { it.totalFat.toDouble() }.toInt()
+                sb.appendLine("#### $date: $totalCals / ${goals.calorieTarget} kcal | P: ${totalProt}g / ${goals.proteinTargetGrams.toInt()}g | C: ${totalCarbs}g / ${goals.carbsTargetGrams.toInt()}g | F: ${totalFat}g / ${goals.fatTargetGrams.toInt()}g")
+                dayEntries.forEach { entry ->
+                    val mult = if (entry.portionMultiplier != 1.0f) " (${entry.portionMultiplier}x)" else ""
+                    sb.appendLine("- [${entry.mealSlot.displayName}] ${entry.name}$mult: ${entry.totalCalories} kcal (P ${entry.totalProtein.toInt()}g, C ${entry.totalCarbs.toInt()}g, F ${entry.totalFat.toInt()}g)")
+                }
+                sb.appendLine()
+            }
+        } else {
+            sb.appendLine("No food logs recorded yet.")
+            sb.appendLine()
+        }
+
+        if (savedMeals.isNotEmpty()) {
+            sb.appendLine("### Saved Staple Meals (${savedMeals.size})")
+            savedMeals.forEach { meal ->
+                val pin = if (meal.isPinnedStaple) "[Staple]" else "[Saved]"
+                val serv = meal.servingDescription.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+                sb.appendLine("- $pin ${meal.name}$serv: ${meal.totalCalories} kcal (P ${meal.totalProtein.toInt()}g, C ${meal.totalCarbs.toInt()}g, F ${meal.totalFat.toInt()}g)")
+            }
+            sb.appendLine()
+        }
+
+        // Section 5: AI Schema & Guide
+        sb.appendLine("## 5. DoItAll App Mechanics & Strict JSON Import Guide")
+        sb.appendLine()
+        sb.appendLine(createAiGuideMarkdown(backupRoot))
+        sb.appendLine()
+
+        // Section 6: Raw Backup JSON
+        sb.appendLine("## 6. Complete Raw Backup JSON (workouts_backup_latest.json)")
+        sb.appendLine("```json")
+        sb.appendLine(backupJson)
         sb.appendLine("```")
         return sb.toString()
     }

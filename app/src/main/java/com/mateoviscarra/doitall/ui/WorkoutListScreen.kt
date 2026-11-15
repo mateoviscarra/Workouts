@@ -1,5 +1,8 @@
 package com.mateoviscarra.doitall.ui
 
+import android.os.SystemClock
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,13 +37,30 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.mateoviscarra.doitall.data.WorkoutDay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,6 +73,7 @@ fun WorkoutListScreen(
     onCustomClick: () -> Unit,
     onEditRoutineClick: (dayIndex: Int) -> Unit,
     onNewRoutineClick: () -> Unit,
+    onMoveDay: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     showHeader: Boolean = true
 ) {
     if (showHeader) {
@@ -87,7 +108,8 @@ fun WorkoutListScreen(
                 onDaySelected = onDaySelected,
                 onCustomClick = onCustomClick,
                 onEditRoutineClick = onEditRoutineClick,
-                onNewRoutineClick = onNewRoutineClick
+                onNewRoutineClick = onNewRoutineClick,
+                onMoveDay = onMoveDay
             )
         }
     } else {
@@ -98,7 +120,8 @@ fun WorkoutListScreen(
             onDaySelected = onDaySelected,
             onCustomClick = onCustomClick,
             onEditRoutineClick = onEditRoutineClick,
-            onNewRoutineClick = onNewRoutineClick
+            onNewRoutineClick = onNewRoutineClick,
+            onMoveDay = onMoveDay
         )
     }
 }
@@ -112,7 +135,8 @@ private fun WorkoutListContent(
     onDaySelected: (index: Int) -> Unit,
     onCustomClick: () -> Unit,
     onEditRoutineClick: (dayIndex: Int) -> Unit,
-    onNewRoutineClick: () -> Unit
+    onNewRoutineClick: () -> Unit,
+    onMoveDay: (fromIndex: Int, toIndex: Int) -> Unit
 ) {
     val context = LocalContext.current
     val cardioStore = remember { CardioPreferencesStore(context.applicationContext) }
@@ -172,136 +196,40 @@ private fun WorkoutListContent(
             }
         }
 
-        // Categorize days dynamically
+        // Preserve user-defined order for all non-cardio routines regardless of naming
         val cardioDay = workoutDays.firstOrNull {
             it.day.trim().equals("Cardio", ignoreCase = true)
         }
         val nonCardioDays = workoutDays.filter { it != cardioDay }
-        val hasNumberedDays = nonCardioDays.any { it.day.trim().startsWith("Day ", ignoreCase = true) }
 
-        val pushDays = nonCardioDays.filter { it.day.contains("push", ignoreCase = true) }
-        val pullDays = nonCardioDays.filter { it.day.contains("pull", ignoreCase = true) }
-        val legDays = nonCardioDays.filter { it.day.contains("leg", ignoreCase = true) }
-        val isStandardSplit = !hasNumberedDays && (pushDays.isNotEmpty() || pullDays.isNotEmpty() || legDays.isNotEmpty())
-        val bottomSplitDays = if (isStandardSplit) {
-            nonCardioDays.filter { it !in pushDays && it !in pullDays && it !in legDays }
-        } else {
-            emptyList()
-        }
-
-        if (isStandardSplit) {
-            // Main Split: 3-column PPL top layer + dynamic bottom layer (Abs & any added split days)
+        if (nonCardioDays.isNotEmpty()) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Main Split",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            pushDays.forEach { day ->
-                                val index = workoutDays.indexOf(day)
-                                WorkoutButton(
-                                    day = day,
-                                    onClick = { onDaySelected(index) },
-                                    onEdit = { onEditRoutineClick(index) }
-                                )
-                            }
-                        }
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            pullDays.forEach { day ->
-                                val index = workoutDays.indexOf(day)
-                                WorkoutButton(
-                                    day = day,
-                                    onClick = { onDaySelected(index) },
-                                    onEdit = { onEditRoutineClick(index) }
-                                )
-                            }
-                        }
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            legDays.forEach { day ->
-                                val index = workoutDays.indexOf(day)
-                                WorkoutButton(
-                                    day = day,
-                                    onClick = { onDaySelected(index) },
-                                    onEdit = { onEditRoutineClick(index) }
-                                )
-                            }
-                        }
+                        Text(
+                            text = "Main Split",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Hold & drag to reorder",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
-                    // Dynamic bottom layer of Main Split (1 item = full-width bar, 2 = 2 columns, 3+ = 3-column grid)
-                    if (bottomSplitDays.isNotEmpty()) {
-                        bottomSplitDays.chunked(3).forEach { rowDays ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                rowDays.forEach { day ->
-                                    val index = workoutDays.indexOf(day)
-                                    Box(modifier = Modifier.weight(1f)) {
-                                        WorkoutButton(
-                                            day = day,
-                                            onClick = { onDaySelected(index) },
-                                            onEdit = { onEditRoutineClick(index) }
-                                        )
-                                    }
-                                }
-                                // When there are >3 items and the second row is partial, align to the 3-column grid
-                                if (bottomSplitDays.size > 3 && rowDays.size < 3) {
-                                    repeat(3 - rowDays.size) {
-                                        Spacer(modifier = Modifier.weight(1f))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else if (nonCardioDays.isNotEmpty()) {
-            // Non-PPL layout: dynamically chunk into 2 columns
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Routines",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
+                    DraggableRoutineGrid(
+                        nonCardioDays = nonCardioDays,
+                        allWorkoutDays = workoutDays,
+                        onDaySelected = onDaySelected,
+                        onEditRoutineClick = onEditRoutineClick,
+                        onMoveDay = onMoveDay
                     )
-                    nonCardioDays.chunked(2).forEach { rowDays ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            rowDays.forEach { day ->
-                                val index = workoutDays.indexOf(day)
-                                Column(modifier = Modifier.weight(1f)) {
-                                    WorkoutButton(
-                                        day = day,
-                                        onClick = { onDaySelected(index) },
-                                        onEdit = { onEditRoutineClick(index) }
-                                    )
-                                }
-                            }
-                            repeat(2 - rowDays.size) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -408,8 +336,212 @@ private fun WorkoutListContent(
 }
 
 @Composable
+private fun DraggableRoutineGrid(
+    nonCardioDays: List<WorkoutDay>,
+    allWorkoutDays: List<WorkoutDay>,
+    onDaySelected: (index: Int) -> Unit,
+    onEditRoutineClick: (dayIndex: Int) -> Unit,
+    onMoveDay: (fromIndex: Int, toIndex: Int) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val latestAllDays by rememberUpdatedState(allWorkoutDays)
+    val latestOnMoveDay by rememberUpdatedState(onMoveDay)
+
+    var orderedDays by remember { mutableStateOf(nonCardioDays) }
+    var draggedDayKey by remember { mutableStateOf<String?>(null) }
+    var dragDelta by remember { mutableStateOf(Offset.Zero) }
+    var grabAnchorOrigin by remember { mutableStateOf(Offset.Zero) }
+    var suppressClickUntilMs by remember { mutableLongStateOf(0L) }
+
+    // Keep optimistic list synced with upstream state when not actively dragging
+    LaunchedEffect(nonCardioDays, draggedDayKey) {
+        if (draggedDayKey == null) {
+            orderedDays = nonCardioDays
+        }
+    }
+
+    // Slot rectangles indexed by grid position (0..orderedDays.lastIndex) in local grid coordinates
+    val slotRectsRef = remember { mutableListOf<Rect>() }
+    val latestOrderedDays by rememberUpdatedState(orderedDays)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { startOffset ->
+                        val hitIndex = slotRectsRef.indexOfFirst { it.contains(startOffset) }
+                        val hitDay = latestOrderedDays.getOrNull(hitIndex)
+                        if (hitDay != null) {
+                            draggedDayKey = hitDay.day
+                            grabAnchorOrigin = slotRectsRef[hitIndex].topLeft
+                            dragDelta = Offset.Zero
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                    },
+                    onDrag = { change, dragAmount ->
+                        val key = draggedDayKey ?: return@detectDragGesturesAfterLongPress
+                        change.consume()
+                        dragDelta += dragAmount
+
+                        val currentDays = latestOrderedDays
+                        val currentGridIdx = currentDays.indexOfFirst { it.day == key }
+                        val currentSlotRect = slotRectsRef.getOrNull(currentGridIdx)
+                            ?: return@detectDragGesturesAfterLongPress
+
+                        val draggedCenter = Offset(
+                            x = grabAnchorOrigin.x + dragDelta.x + currentSlotRect.width / 2f,
+                            y = grabAnchorOrigin.y + dragDelta.y + currentSlotRect.height / 2f
+                        )
+
+                        val targetGridIdx = slotRectsRef.indexOfFirst { it.contains(draggedCenter) }
+                        if (targetGridIdx in currentDays.indices && targetGridIdx != currentGridIdx) {
+                            val movingDay = currentDays[currentGridIdx]
+                            val targetDay = currentDays[targetGridIdx]
+
+                            val nextOrder = currentDays.toMutableList()
+                            val item = nextOrder.removeAt(currentGridIdx)
+                            nextOrder.add(targetGridIdx, item)
+                            orderedDays = nextOrder
+
+                            val fromPlanIdx = latestAllDays.indexOfFirst { it.day == movingDay.day }
+                            val toPlanIdx = latestAllDays.indexOfFirst { it.day == targetDay.day }
+                            if (fromPlanIdx != -1 && toPlanIdx != -1 && fromPlanIdx != toPlanIdx) {
+                                latestOnMoveDay(fromPlanIdx, toPlanIdx)
+                            }
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    },
+                    onDragEnd = {
+                        draggedDayKey = null
+                        dragDelta = Offset.Zero
+                        suppressClickUntilMs = SystemClock.uptimeMillis() + 300L
+                    },
+                    onDragCancel = {
+                        draggedDayKey = null
+                        dragDelta = Offset.Zero
+                        suppressClickUntilMs = SystemClock.uptimeMillis() + 300L
+                    }
+                )
+            }
+    ) {
+        TwoColumnRoutineLayout(
+            horizontalSpacing = 12.dp,
+            verticalSpacing = 12.dp,
+            onSlotRectsComputed = { rects ->
+                slotRectsRef.clear()
+                slotRectsRef.addAll(rects)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            orderedDays.forEachIndexed { gridIdx, day ->
+                key(day.day) {
+                    val isDraggingThis = draggedDayKey == day.day
+                    val planIndex = allWorkoutDays.indexOfFirst { it.day == day.day }
+                        .takeIf { it >= 0 } ?: gridIdx
+
+                    Box(
+                        modifier = Modifier
+                            .zIndex(if (isDraggingThis) 10f else 0f)
+                            .graphicsLayer {
+                                if (isDraggingThis) {
+                                    val currentTopLeft = slotRectsRef.getOrNull(gridIdx)?.topLeft ?: grabAnchorOrigin
+                                    translationX = (grabAnchorOrigin.x + dragDelta.x) - currentTopLeft.x
+                                    translationY = (grabAnchorOrigin.y + dragDelta.y) - currentTopLeft.y
+                                    scaleX = 1.04f
+                                    scaleY = 1.04f
+                                    shadowElevation = 18f
+                                }
+                            }
+                    ) {
+                        WorkoutButton(
+                            day = day,
+                            isDragging = isDraggingThis,
+                            onClick = {
+                                if (draggedDayKey == null && SystemClock.uptimeMillis() > suppressClickUntilMs) {
+                                    onDaySelected(planIndex)
+                                }
+                            },
+                            onEdit = {
+                                if (draggedDayKey == null && SystemClock.uptimeMillis() > suppressClickUntilMs) {
+                                    onEditRoutineClick(planIndex)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TwoColumnRoutineLayout(
+    horizontalSpacing: Dp,
+    verticalSpacing: Dp,
+    onSlotRectsComputed: (List<Rect>) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Layout(
+        content = content,
+        modifier = modifier
+    ) { measurables, constraints ->
+        val hSpacePx = horizontalSpacing.roundToPx()
+        val vSpacePx = verticalSpacing.roundToPx()
+        val colWidth = ((constraints.maxWidth - hSpacePx) / 2).coerceAtLeast(0)
+        val minCardHeightPx = 82.dp.roundToPx()
+
+        val itemConstraints = Constraints(
+            minWidth = colWidth,
+            maxWidth = colWidth,
+            minHeight = minCardHeightPx,
+            maxHeight = constraints.maxHeight
+        )
+
+        val placeables = measurables.map { it.measure(itemConstraints) }
+        val rowHeights = placeables.chunked(2).map { row ->
+            row.maxOfOrNull { it.height } ?: minCardHeightPx
+        }
+        val totalHeight = if (rowHeights.isEmpty()) {
+            0
+        } else {
+            rowHeights.sum() + vSpacePx * (rowHeights.size - 1)
+        }
+
+        val computedRects = ArrayList<Rect>(placeables.size)
+        var cursorY = 0
+        placeables.chunked(2).forEachIndexed { rowIdx, row ->
+            val rowH = rowHeights[rowIdx]
+            var cursorX = 0
+            row.forEach { _ ->
+                computedRects.add(
+                    Rect(
+                        left = cursorX.toFloat(),
+                        top = cursorY.toFloat(),
+                        right = (cursorX + colWidth).toFloat(),
+                        bottom = (cursorY + rowH).toFloat()
+                    )
+                )
+                cursorX += colWidth + hSpacePx
+            }
+            cursorY += rowH + vSpacePx
+        }
+        onSlotRectsComputed(computedRects)
+
+        layout(constraints.maxWidth, totalHeight) {
+            placeables.forEachIndexed { idx, placeable ->
+                val rect = computedRects[idx]
+                placeable.placeRelative(rect.left.toInt(), rect.top.toInt())
+            }
+        }
+    }
+}
+
+@Composable
 private fun WorkoutButton(
     day: WorkoutDay,
+    isDragging: Boolean = false,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     isAccent: Boolean = false
@@ -418,8 +550,11 @@ private fun WorkoutButton(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
+        border = if (isDragging) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         colors = CardDefaults.cardColors(
-            containerColor = if (isAccent) {
+            containerColor = if (isDragging) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else if (isAccent) {
                 MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
             } else {
                 MaterialTheme.colorScheme.surfaceVariant

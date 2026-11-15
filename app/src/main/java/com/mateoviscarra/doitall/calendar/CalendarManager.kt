@@ -28,6 +28,7 @@ import java.time.ZoneId
 private const val TAG = "CalendarManager"
 
 const val CALENDAR_SCOPES = CalendarScopes.CALENDAR_EVENTS
+const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 data class CalendarAuthState(
     val isConnected: Boolean,
@@ -78,7 +79,7 @@ class CalendarManager(private val context: Context) {
 
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
-            .requestScopes(Scope(CALENDAR_SCOPES))
+            .requestScopes(Scope(CALENDAR_SCOPES), Scope(DRIVE_FILE_SCOPE))
             .build()
 
         googleSignInClient = GoogleSignIn.getClient(context, gso)
@@ -88,7 +89,7 @@ class CalendarManager(private val context: Context) {
     fun getGoogleSignInClient(activity: Activity): GoogleSignInClient {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
-            .requestScopes(Scope(CALENDAR_SCOPES))
+            .requestScopes(Scope(CALENDAR_SCOPES), Scope(DRIVE_FILE_SCOPE))
             .build()
 
         return GoogleSignIn.getClient(activity, gso)

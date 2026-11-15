@@ -132,10 +132,19 @@ class WorkoutPlanRepository(
         scope.launch {
             try {
                 store.savePlan(newPlan)
+                DriveSyncManager.scheduleAutoSync(context, "Workout plan updated")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to persist workout plan", e)
             }
         }
+    }
+
+    fun moveDay(fromIndex: Int, toIndex: Int) {
+        val currentDays = _plan.value.days.toMutableList()
+        if (fromIndex !in currentDays.indices || toIndex !in currentDays.indices || fromIndex == toIndex) return
+        val moved = currentDays.removeAt(fromIndex)
+        currentDays.add(toIndex, moved)
+        updateAndPersist(_plan.value.copy(days = currentDays))
     }
 
     fun savePlan(newPlan: NewWorkoutPlan) {

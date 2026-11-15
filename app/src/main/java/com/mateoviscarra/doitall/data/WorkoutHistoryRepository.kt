@@ -40,6 +40,10 @@ class WorkoutHistoryRepository(
         loadData()
     }
 
+    fun reloadFromPrefs() {
+        loadData()
+    }
+
     private fun loadData() {
         // Load sessions
         val sessionsJson = prefs.getString(KEY_SESSIONS, null)
@@ -151,6 +155,7 @@ class WorkoutHistoryRepository(
             array.put(obj)
         }
         prefs.edit().putString(KEY_SESSIONS, array.toString()).apply()
+        DriveSyncManager.scheduleAutoSync(context, "Workout history updated")
     }
 
     private fun parseSessionsJson(json: String): List<WorkoutSessionRecord> {
@@ -279,6 +284,7 @@ class WorkoutHistoryRepository(
             obj.put(id, prObj)
         }
         prefs.edit().putString(KEY_PRS, obj.toString()).apply()
+        DriveSyncManager.scheduleAutoSync(context, "Personal records updated")
     }
 
     private fun parsePRsJson(json: String): Map<String, PersonalRecord> {

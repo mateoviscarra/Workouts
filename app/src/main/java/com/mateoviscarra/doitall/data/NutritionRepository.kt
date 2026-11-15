@@ -216,6 +216,7 @@ class NutritionRepository(
             put("fatTargetGrams", newGoals.fatTargetGrams.toDouble())
         }
         prefs.edit().putString(KEY_NUTRITION_GOALS, obj.toString()).apply()
+        DriveSyncManager.scheduleAutoSync(context, "Nutrition goals updated")
     }
 
     fun saveUserProfile(profile: UserProfile) {
@@ -228,6 +229,7 @@ class NutritionRepository(
             put("fitnessGoalSummary", profile.fitnessGoalSummary)
         }
         prefs.edit().putString(KEY_USER_PROFILE, obj.toString()).apply()
+        DriveSyncManager.scheduleAutoSync(context, "User profile updated")
     }
 
     // --- Saved Meals / Staples ---
@@ -292,6 +294,7 @@ class NutritionRepository(
                 arr.put(obj)
             }
             prefs.edit().putString(KEY_SAVED_MEALS, arr.toString()).apply()
+            DriveSyncManager.scheduleAutoSync(context, "Saved meals updated")
         }
     }
 
@@ -410,6 +413,7 @@ class NutritionRepository(
                 arr.put(obj)
             }
             prefs.edit().putString(KEY_FOOD_LOGS, arr.toString()).apply()
+            DriveSyncManager.scheduleAutoSync(context, "Food log updated")
         }
     }
 
@@ -681,6 +685,7 @@ class NutritionRepository(
                 arr.put(obj)
             }
             prefs.edit().putString(KEY_WEIGHT_LOGS, arr.toString()).apply()
+            DriveSyncManager.scheduleAutoSync(context, "Weight log updated")
         }
     }
 

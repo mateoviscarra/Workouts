@@ -1,5 +1,6 @@
 package com.mateoviscarra.doitall.ui
 
+import android.app.Activity
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Info
@@ -30,12 +33,14 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,11 +51,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,11 +72,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.mateoviscarra.doitall.calendar.CalendarManager
 import com.mateoviscarra.doitall.data.DataBackupManager
+import com.mateoviscarra.doitall.data.DriveSyncManager
 import com.mateoviscarra.doitall.data.NutritionGoals
 import com.mateoviscarra.doitall.data.NutritionRepository
+import com.mateoviscarra.doitall.data.RecoverableDriveAuthException
 import com.mateoviscarra.doitall.data.UserProfile
 import com.mateoviscarra.doitall.data.WorkoutPlan
 import com.mateoviscarra.doitall.ui.theme.ThemeMode
@@ -78,6 +93,7 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -98,6 +114,20 @@ fun SettingsScreen(
 
     val authState = calendarManager.getAuthState()
     val themeMode by themeStore.themeMode.collectAsStateWithLifecycle()
+    val driveSyncState by DriveSyncManager.stateFlow(context).collectAsStateWithLifecycle()
+    var driveAccountEmail by remember { mutableStateOf(DriveSyncManager.getSignedInAccount(context)?.email) }
+    var hasDriveScope by remember { mutableStateOf(DriveSyncManager.hasDriveScope(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                driveAccountEmail = DriveSyncManager.getSignedInAccount(context)?.email
+                hasDriveScope = DriveSyncManager.hasDriveScope(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val goals by repo.goals.collectAsStateWithLifecycle()
     val savedProfile by repo.userProfile.collectAsStateWithLifecycle()
@@ -185,6 +215,60 @@ fun SettingsScreen(
         }
     }
 
+    val driveConsentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            coroutineScope.launch {
+                val res = DriveSyncManager.syncNow(context)
+                res.onSuccess {
+                    Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                }.onFailure { err ->
+                    Toast.makeText(context, "Drive sync failed: ${err.localizedMessage}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val driveSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = result.data?.let { GoogleSignIn.getSignedInAccountFromIntent(it) }
+        if (task != null) {
+            task.addOnSuccessListener { account ->
+                calendarManager.setAuthSuccess()
+                driveAccountEmail = account.email
+                hasDriveScope = DriveSyncManager.hasDriveScope(context)
+                if (hasDriveScope) {
+                    coroutineScope.launch {
+                        val res = DriveSyncManager.syncNow(context)
+                        res.onSuccess {
+                            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                        }.onFailure { err ->
+                            val rec = (err as? RecoverableDriveAuthException)?.recoveryIntent
+                            if (rec != null) {
+                                driveConsentLauncher.launch(rec)
+                            } else {
+                                Toast.makeText(context, "Sync error: ${err.localizedMessage}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }.addOnFailureListener { err ->
+                val code = (err as? ApiException)?.statusCode
+                val msg = if (code == CommonStatusCodes.DEVELOPER_ERROR || code == 10) {
+                    "Google sign-in configuration mismatch (Code 10). Check SHA-1 in Calendar Settings."
+                } else {
+                    "Google Drive sign-in failed: ${err.localizedMessage ?: "Code $code"}"
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+        } else {
+            driveAccountEmail = DriveSyncManager.getSignedInAccount(context)?.email
+            hasDriveScope = DriveSyncManager.hasDriveScope(context)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -259,7 +343,7 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "Included automatically in your AI Export bundle so any AI understands your body stats and training goals.",
+                        text = "Included automatically in your AI Export bundle and NotebookLM Google Doc alongside your Daily Nutrition Targets below (no need to repeat calorie or macro numbers here).",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -328,7 +412,8 @@ fun SettingsScreen(
                         value = fitnessGoalInput,
                         onValueChange = { fitnessGoalInput = it },
                         label = { Text("Fitness Goals & Context") },
-                        placeholder = { Text("e.g. Lean bulk/cut, upper body & trap focus, 2-on 1-off split...") },
+                        placeholder = { Text("e.g. Cut / body recomposition, upper body & trap focus, 2-on 1-off split...") },
+                        supportingText = { Text("Calorie & macro targets are read automatically from Daily Nutrition Targets below.") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 6
@@ -763,12 +848,170 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // --- INTEGRATIONS (GOOGLE CALENDAR) ---
+            // --- INTEGRATIONS (NOTEBOOKLM & GOOGLE DRIVE + GOOGLE CALENDAR) ---
             Text(
                 text = "Integrations",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudUpload,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "NotebookLM & Google Drive Sync",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Keeps \"DoItAll — Live Coach Context & Data\" (Google Doc) and \"workouts_backup_latest.json\" updated in-place inside your Drive folder \"DoItAll Fitness\". Add the Google Doc once as a source in NotebookLM.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Text(
+                        text = when {
+                            hasDriveScope && !driveAccountEmail.isNullOrBlank() -> "Connected as $driveAccountEmail"
+                            hasDriveScope -> "Google Drive connected"
+                            !driveAccountEmail.isNullOrBlank() -> "Signed in ($driveAccountEmail) — Drive access needed"
+                            else -> "Not connected to Google Drive"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = if (hasDriveScope) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    val lastSyncedLabel = remember(driveSyncState.lastSyncTimeMs) {
+                        if (driveSyncState.lastSyncTimeMs > 0L) {
+                            val formatted = Instant.ofEpochMilli(driveSyncState.lastSyncTimeMs)
+                                .atZone(ZoneId.systemDefault())
+                                .format(DateTimeFormatter.ofPattern("MMM d, yyyy 'at' HH:mm", Locale.US))
+                            "Last synced: $formatted"
+                        } else {
+                            "Last synced: Never"
+                        }
+                    }
+                    Text(
+                        text = lastSyncedLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    driveSyncState.lastSyncError?.takeIf { it.isNotBlank() }?.let { errText ->
+                        Text(
+                            text = "Last sync error: $errText",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-Sync on App Updates",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Automatically updates Drive ~12s after workouts, meals, weight, or routine changes",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = driveSyncState.autoSyncEnabled,
+                            onCheckedChange = { enabled ->
+                                DriveSyncManager.setAutoSyncEnabled(context, enabled)
+                            }
+                        )
+                    }
+
+                    if (!hasDriveScope) {
+                        Button(
+                            onClick = {
+                                val signInIntent = DriveSyncManager.getDriveSignInClient(context).signInIntent
+                                driveSignInLauncher.launch(signInIntent)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CloudUpload, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (driveAccountEmail != null) "Grant Google Drive Access" else "Connect Google Drive")
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                saveProfileToRepo()
+                                coroutineScope.launch {
+                                    val res = DriveSyncManager.syncNow(context)
+                                    res.onSuccess { msg ->
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }.onFailure { err ->
+                                        val recoveryIntent = (err as? RecoverableDriveAuthException)?.recoveryIntent
+                                        if (recoveryIntent != null) {
+                                            driveConsentLauncher.launch(recoveryIntent)
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "Sync failed: ${err.localizedMessage ?: "Unknown error"}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !driveSyncState.isSyncing,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (driveSyncState.isSyncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Syncing to Google Drive...")
+                            } else {
+                                Icon(Icons.Default.Sync, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Sync to Google Drive Now")
+                            }
+                        }
+                    }
+                }
+            }
 
             Card(
                 onClick = onCalendarSettingsClick,

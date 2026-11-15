@@ -132,6 +132,9 @@ fun WorkoutApp(
                     onNewRoutineClick = {
                         navController.navigate(routineEditorRoute(-1))
                     },
+                    onMoveDay = { fromIndex, toIndex ->
+                        viewModel.moveDay(fromIndex, toIndex)
+                    },
                     onAddExercise = { categoryId, exercise ->
                         viewModel.addExerciseToCategory(categoryId, exercise)
                     },
