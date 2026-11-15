@@ -1,6 +1,8 @@
 package com.mateoviscarra.doitall.data
 
 import com.mateoviscarra.doitall.data.persist.WeightUnit
+import java.time.LocalDate
+import java.time.Period
 import java.util.UUID
 
 enum class MealSlot(val displayName: String) {
@@ -149,3 +151,24 @@ Return STRICT JSON in the following format:
   "fat": 12.0,
   "notes": "Short helpful context or culinary estimation explanation"
 }"""
+
+/**
+ * User physical profile and fitness context for AI coaching and calorie/macro calculations.
+ */
+data class UserProfile(
+    val heightCm: Float = 0f,
+    val sex: String = "",                 // e.g. "Male", "Female", "Other"
+    val birthDateIso: String = "",        // YYYY-MM-DD
+    val targetWeightKg: Float = 0f,
+    val fitnessGoalSummary: String = ""   // Free-form goals, split info, preferences
+) {
+    fun calculateAge(today: LocalDate = LocalDate.now()): Int? {
+        if (birthDateIso.isBlank()) return null
+        return try {
+            val birthDate = LocalDate.parse(birthDateIso.trim())
+            Period.between(birthDate, today).years.takeIf { it in 1..120 }
+        } catch (_: Exception) {
+            null
+        }
+    }
+}

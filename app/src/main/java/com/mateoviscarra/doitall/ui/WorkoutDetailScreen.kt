@@ -139,7 +139,7 @@ fun WorkoutDetailScreen(
     viewModel: com.mateoviscarra.doitall.viewmodel.WorkoutDetailViewModel = androidx.lifecycle.viewmodel.compose.viewModel(key = dayKey),
     historyViewModel: HistoryViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 ) {
-    if (workoutDay.day.equals("Cardio", ignoreCase = true) || workoutDay.day.contains("cardio", ignoreCase = true)) {
+    if (workoutDay.day.trim().equals("Cardio", ignoreCase = true)) {
         CardioWorkoutScreen(
             workoutPlan = workoutPlan,
             workoutDay = workoutDay,
@@ -2399,7 +2399,7 @@ private fun PairSupersetDialog(
 
 private fun parseSeconds(timeStr: String): Int {
     val trimmed = timeStr.trim().lowercase()
-    if (trimmed.endsWith("m") || trimmed.endsWith("min")) {
+    if (trimmed.contains("min") || trimmed.endsWith("m")) {
         val num = Regex("""[\d.]+""").find(trimmed)?.value?.toDoubleOrNull() ?: 1.0
         return (num * 60).toInt()
     }

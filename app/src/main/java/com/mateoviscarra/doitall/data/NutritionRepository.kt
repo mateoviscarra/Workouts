@@ -20,6 +20,7 @@ private const val KEY_SAVED_MEALS = "saved_meals_json"
 private const val KEY_FOOD_LOGS = "food_logs_json"
 private const val KEY_WEIGHT_LOGS = "weight_logs_json"
 private const val KEY_NUTRITION_GOALS = "nutrition_goals_json"
+private const val KEY_USER_PROFILE = "user_profile_json"
 private const val KEY_AI_PROMPT = "custom_ai_prompt"
 private const val KEY_GEMINI_API_KEY = "gemini_api_key"
 
@@ -31,6 +32,9 @@ class NutritionRepository(
 
     private val _goals = MutableStateFlow(NutritionGoals())
     val goals: StateFlow<NutritionGoals> = _goals.asStateFlow()
+
+    private val _userProfile = MutableStateFlow(UserProfile())
+    val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
 
     private val _savedMeals = MutableStateFlow<List<SavedMeal>>(emptyList())
     val savedMeals: StateFlow<List<SavedMeal>> = _savedMeals.asStateFlow()
@@ -47,12 +51,31 @@ class NutritionRepository(
     private val _geminiApiKey = MutableStateFlow("")
     val geminiApiKey: StateFlow<String> = _geminiApiKey.asStateFlow()
 
-    init {
-        loadData()
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        reloadFromPrefs()
     }
 
-    private fun loadData() {
-        // Goals
+    init {
+        loadData()
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+    }
+
+    fun reloadFromPrefs() {
+        loadGoalsFromPrefs()
+        _userProfile.value = loadUserProfile()
+        prefs.getString(KEY_SAVED_MEALS, null)?.takeIf { it.isNotBlank() }?.let {
+            runCatching { parseSavedMeals(it) }.getOrNull()?.let { _savedMeals.value = it }
+        }
+        prefs.getString(KEY_FOOD_LOGS, null)?.takeIf { it.isNotBlank() }?.let {
+            runCatching { parseFoodLogs(it) }.getOrNull()?.let { _foodLogs.value = it }
+        }
+        prefs.getString(KEY_WEIGHT_LOGS, null)?.takeIf { it.isNotBlank() }?.let {
+            runCatching { parseWeightLogs(it) }.getOrNull()?.let { _weightLogs.value = it }
+        }
+        prefs.getString(KEY_GEMINI_API_KEY, null)?.let { _geminiApiKey.value = it }
+    }
+
+    private fun loadGoalsFromPrefs() {
         val goalsJson = prefs.getString(KEY_NUTRITION_GOALS, null)
         if (!goalsJson.isNullOrBlank()) {
             try {
@@ -67,6 +90,29 @@ class NutritionRepository(
                 Log.e(TAG, "Error loading nutrition goals", e)
             }
         }
+    }
+
+    private fun loadUserProfile(): UserProfile {
+        val json = prefs.getString(KEY_USER_PROFILE, null) ?: return UserProfile()
+        return try {
+            val obj = JSONObject(json)
+            UserProfile(
+                heightCm = obj.optDouble("heightCm", 0.0).toFloat(),
+                sex = obj.optString("sex", ""),
+                birthDateIso = obj.optString("birthDateIso", ""),
+                targetWeightKg = obj.optDouble("targetWeightKg", 0.0).toFloat(),
+                fitnessGoalSummary = obj.optString("fitnessGoalSummary", "")
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading user profile", e)
+            UserProfile()
+        }
+    }
+
+    private fun loadData() {
+        // Goals & User Profile
+        loadGoalsFromPrefs()
+        _userProfile.value = loadUserProfile()
 
         // Saved Meals / Staples
         val mealsJson = prefs.getString(KEY_SAVED_MEALS, null)
@@ -160,18 +206,28 @@ class NutritionRepository(
         _geminiApiKey.value = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
     }
 
-    // --- Goals ---
+    // --- Goals & Profile ---
     fun updateGoals(newGoals: NutritionGoals) {
         _goals.value = newGoals
-        scope.launch {
-            val obj = JSONObject().apply {
-                put("calorieTarget", newGoals.calorieTarget)
-                put("proteinTargetGrams", newGoals.proteinTargetGrams.toDouble())
-                put("carbsTargetGrams", newGoals.carbsTargetGrams.toDouble())
-                put("fatTargetGrams", newGoals.fatTargetGrams.toDouble())
-            }
-            prefs.edit().putString(KEY_NUTRITION_GOALS, obj.toString()).apply()
+        val obj = JSONObject().apply {
+            put("calorieTarget", newGoals.calorieTarget)
+            put("proteinTargetGrams", newGoals.proteinTargetGrams.toDouble())
+            put("carbsTargetGrams", newGoals.carbsTargetGrams.toDouble())
+            put("fatTargetGrams", newGoals.fatTargetGrams.toDouble())
         }
+        prefs.edit().putString(KEY_NUTRITION_GOALS, obj.toString()).apply()
+    }
+
+    fun saveUserProfile(profile: UserProfile) {
+        _userProfile.value = profile
+        val obj = JSONObject().apply {
+            put("heightCm", profile.heightCm.toDouble())
+            put("sex", profile.sex)
+            put("birthDateIso", profile.birthDateIso)
+            put("targetWeightKg", profile.targetWeightKg.toDouble())
+            put("fitnessGoalSummary", profile.fitnessGoalSummary)
+        }
+        prefs.edit().putString(KEY_USER_PROFILE, obj.toString()).apply()
     }
 
     // --- Saved Meals / Staples ---
@@ -442,6 +498,17 @@ class NutritionRepository(
             put("fatTargetGrams", g.fatTargetGrams.toDouble())
         })
 
+        // User Profile
+        val profile = _userProfile.value
+        root.put("userProfile", JSONObject().apply {
+            put("heightCm", profile.heightCm.toDouble())
+            put("sex", profile.sex)
+            put("birthDateIso", profile.birthDateIso)
+            profile.calculateAge()?.let { put("ageYears", it) }
+            put("targetWeightKg", profile.targetWeightKg.toDouble())
+            put("fitnessGoalSummary", profile.fitnessGoalSummary)
+        })
+
         // Saved meals
         val mealsArr = JSONArray()
         _savedMeals.value.forEach { m ->
@@ -532,6 +599,18 @@ class NutritionRepository(
                     proteinTargetGrams = gObj.optDouble("proteinTargetGrams", 180.0).toFloat(),
                     carbsTargetGrams = gObj.optDouble("carbsTargetGrams", 250.0).toFloat(),
                     fatTargetGrams = gObj.optDouble("fatTargetGrams", 70.0).toFloat()
+                )
+            )
+        }
+        obj.optJSONObject("userProfile")?.let { pObj ->
+            val current = _userProfile.value
+            saveUserProfile(
+                UserProfile(
+                    heightCm = pObj.optDouble("heightCm", current.heightCm.toDouble()).toFloat(),
+                    sex = pObj.optString("sex", current.sex),
+                    birthDateIso = pObj.optString("birthDateIso", current.birthDateIso),
+                    targetWeightKg = pObj.optDouble("targetWeightKg", current.targetWeightKg.toDouble()).toFloat(),
+                    fitnessGoalSummary = pObj.optString("fitnessGoalSummary", current.fitnessGoalSummary)
                 )
             )
         }

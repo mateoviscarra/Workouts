@@ -58,13 +58,95 @@ class NewWorkoutStore(context: Context) {
 
     fun importPlanJson(obj: JSONObject): Boolean {
         if (obj.has("categories") && obj.has("days")) {
+            val categoriesArr = JSONArray(obj.getJSONArray("categories").toString())
+            val daysArr = JSONArray(obj.getJSONArray("days").toString())
+
+            // Ensure standalone "Cardio" day is preserved so the dedicated Cardio widget stays available
+            var hasStandaloneCardio = false
+            for (i in 0 until daysArr.length()) {
+                val dayObj = daysArr.optJSONObject(i) ?: continue
+                if (dayObj.optString("day", "").trim().equals("Cardio", ignoreCase = true)) {
+                    hasStandaloneCardio = true
+                    break
+                }
+            }
+            if (!hasStandaloneCardio) {
+                ensureCardioExercisesInCategories(categoriesArr)
+                daysArr.put(defaultStandaloneCardioDayJson())
+            }
+
             prefs.edit()
-                .putString(KEY_CATEGORIES, obj.getJSONArray("categories").toString())
-                .putString(KEY_DAYS, obj.getJSONArray("days").toString())
+                .putString(KEY_CATEGORIES, categoriesArr.toString())
+                .putString(KEY_DAYS, daysArr.toString())
                 .apply()
             return true
         }
         return false
+    }
+
+    private fun ensureCardioExercisesInCategories(categoriesArr: JSONArray) {
+        val existingIds = mutableSetOf<String>()
+        var accessoryObj: JSONObject? = null
+        for (i in 0 until categoriesArr.length()) {
+            val catObj = categoriesArr.optJSONObject(i) ?: continue
+            if (catObj.optString("id", "").equals("accessory", ignoreCase = true)) {
+                accessoryObj = catObj
+            }
+            val exArr = catObj.optJSONArray("exercises") ?: continue
+            for (j in 0 until exArr.length()) {
+                val id = exArr.optJSONObject(j)?.optString("id", "")
+                if (!id.isNullOrBlank()) existingIds.add(id)
+            }
+        }
+        if (accessoryObj == null) {
+            accessoryObj = JSONObject().apply {
+                put("id", "accessory")
+                put("name", "Accessory")
+                put("exercises", JSONArray())
+            }
+            categoriesArr.put(accessoryObj)
+        }
+        val accExercises = accessoryObj.optJSONArray("exercises") ?: JSONArray().also {
+            accessoryObj.put("exercises", it)
+        }
+        val defaults = listOf(
+            Triple("running", "Running", "20min"),
+            Triple("cycling", "Cycling", "30min"),
+            Triple("incline_walking", "Incline walking", "45min"),
+            Triple("walking", "Walking", "30min"),
+            Triple("stair_master_", "Stair master", "10 mins")
+        )
+        for ((id, name, reps) in defaults) {
+            if (id !in existingIds) {
+                accExercises.put(JSONObject().apply {
+                    put("id", id)
+                    put("name", name)
+                    put("defaultSets", 1)
+                    put("defaultReps", reps)
+                    put("defaultLoad", "")
+                    put("isTimed", true)
+                    put("defaultTime", reps)
+                    put("isBodyweight", true)
+                    put("weightUnit", "kg")
+                    put("usesStraps", false)
+                    put("defaultNotes", if (id == "stair_master_") "Level 5" else "")
+                })
+            }
+        }
+    }
+
+    private fun defaultStandaloneCardioDayJson(): JSONObject {
+        val exArr = JSONArray()
+        listOf("incline_walking", "stair_master_", "running", "cycling", "walking").forEach { id ->
+            exArr.put(JSONObject().put("exerciseId", id))
+        }
+        return JSONObject().apply {
+            put("day", "Cardio")
+            put("muscleGroups", JSONArray())
+            put("isRestDay", false)
+            put("notes", JSONArray())
+            put("exercises", exArr)
+        }
     }
     
     private fun categoriesToJson(categories: List<Category>): String {
@@ -180,11 +262,11 @@ class NewWorkoutStore(context: Context) {
             if (isRestDay || dayName.equals("Rest", ignoreCase = true)) {
                 continue
             }
-            val mgArr = obj.getJSONArray("muscleGroups")
-            val muscleGroups = (0 until mgArr.length()).map { mgArr.getString(it) }
-            val notesArr = obj.getJSONArray("notes")
-            val notes = (0 until notesArr.length()).map { notesArr.getString(it) }
-            val exArr = obj.getJSONArray("exercises")
+            val mgArr = obj.optJSONArray("muscleGroups") ?: obj.optJSONArray("muscle_groups")
+            val muscleGroups = if (mgArr != null) (0 until mgArr.length()).map { mgArr.getString(it) } else emptyList()
+            val notesArr = obj.optJSONArray("notes")
+            val notes = if (notesArr != null) (0 until notesArr.length()).map { notesArr.getString(it) } else emptyList()
+            val exArr = obj.optJSONArray("exercises") ?: JSONArray()
             val exercises = parseDayExercises(exArr)
             list.add(NewWorkoutDay(
                 day = dayName,

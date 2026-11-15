@@ -7,11 +7,27 @@ import com.mateoviscarra.doitall.data.WorkoutSlot
 import com.mateoviscarra.doitall.data.defaultRepsInt
 import com.mateoviscarra.doitall.data.defaultSetsInt
 
+private fun cleanNumericWeight(raw: String): String {
+    val cleaned = raw.trim()
+        .replace(Regex("""(?i)\s*(kgs?|lbs?)\s*$"""), "")
+        .replace(Regex("""(?i)\s*(kgs?|lbs?)(?=\s*x\s*\d)"""), "")
+        .trim()
+    return if (cleaned.equals("min", ignoreCase = true) ||
+        cleaned.equals("mins", ignoreCase = true) ||
+        cleaned.equals("sec", ignoreCase = true)
+    ) {
+        ""
+    } else {
+        cleaned
+    }
+}
+
 /**
  * Parses the JSON load string to extract bodyweight flag and numeric weight.
  * E.g. "Bodyweight + 15 kg" → isBodyweight=true, weight="15"
  * E.g. "Bodyweight"         → isBodyweight=true, weight=""
- * E.g. "32 kg each"         → isBodyweight=false, weight="32 kg each"
+ * E.g. "85 kg"              → isBodyweight=false, weight="85"
+ * E.g. "25 kg x 2"          → isBodyweight=false, weight="25 x 2"
  */
 private fun parseLoadString(load: String): Pair<Boolean, String> {
     val trimmed = load.trim()
@@ -22,21 +38,21 @@ private fun parseLoadString(load: String): Pair<Boolean, String> {
     val match = bwRegex.find(trimmed)
     if (match != null) {
         val sign = match.groupValues[1].trim()
-        val rest = match.groupValues[2].trim()
+        val rest = cleanNumericWeight(match.groupValues[2])
         val numMatch = Regex("""[+-]?[\d.]+""").find(rest)
         val numStr = numMatch?.value ?: rest
-        val finalNum = if (sign == "-" && !numStr.startsWith("-")) "-$numStr" else numStr
+        val finalNum = if (sign == "-" && numStr.isNotEmpty() && !numStr.startsWith("-")) "-$numStr" else numStr
         return true to finalNum
     }
     if (trimmed.startsWith("bodyweight", ignoreCase = true)) {
-        val rest = trimmed.substring("bodyweight".length).trim()
+        val rest = cleanNumericWeight(trimmed.substring("bodyweight".length))
         val numMatch = Regex("""[+-]?[\d.]+""").find(rest)
         if (numMatch != null) {
             return true to numMatch.value
         }
         return true to ""
     }
-    return false to trimmed
+    return false to cleanNumericWeight(trimmed)
 }
 
 fun defaultExerciseLog(def: ExerciseDefinition): ExerciseLogState {
@@ -49,7 +65,11 @@ fun defaultExerciseLog(def: ExerciseDefinition): ExerciseLogState {
     val timeTarget = if (isTimed) {
         if (def.defaultTime.isNotBlank()) def.defaultTime else if (def.reps.isNotBlank()) def.reps else "60s"
     } else "60s"
-    val unit = if (def.weightUnit.equals("lbs", ignoreCase = true)) WeightUnit.LBS else WeightUnit.KG
+    val unit = if (def.weightUnit.equals("lbs", ignoreCase = true) || def.load.contains(Regex("""(?i)\blbs?\b"""))) {
+        WeightUnit.LBS
+    } else {
+        WeightUnit.KG
+    }
 
     return ExerciseLogState(
         sets = sets,

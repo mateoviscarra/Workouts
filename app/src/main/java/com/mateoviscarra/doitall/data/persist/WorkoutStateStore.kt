@@ -140,6 +140,27 @@ class WorkoutStateStore(private val context: Context) {
             prefs[JSON_KEY_V2] = root.withDay(dayKey, nextDay).toJsonString()
         }
     }
+
+    /**
+     * Updates persisted exercise logs and day slot bindings to match a newly imported WorkoutPlan.
+     */
+    suspend fun syncLogsFromPlan(plan: WorkoutPlan) {
+        dataStore.edit { prefs ->
+            val root = parsePersistRootV2(prefs[JSON_KEY_V2])
+            val updatedLogs = root.logs.toMutableMap()
+            for (def in plan.catalog.values) {
+                updatedLogs[def.id] = sanitizeExerciseLog(defaultExerciseLog(def))
+            }
+            val updatedDays = mutableMapOf<String, DayLogState>()
+            for (day in plan.schedule) {
+                updatedDays[day.day] = defaultDayLog(day)
+            }
+            prefs[JSON_KEY_V2] = PersistRootV2(
+                logs = updatedLogs,
+                days = updatedDays
+            ).toJsonString()
+        }
+    }
 }
 
 private fun sanitizeExerciseLog(log: ExerciseLogState): ExerciseLogState =

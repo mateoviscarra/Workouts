@@ -174,14 +174,15 @@ private fun WorkoutListContent(
 
         // Categorize days dynamically
         val cardioDay = workoutDays.firstOrNull {
-            it.day.equals("Cardio", ignoreCase = true) || it.day.contains("cardio", ignoreCase = true)
+            it.day.trim().equals("Cardio", ignoreCase = true)
         }
         val nonCardioDays = workoutDays.filter { it != cardioDay }
+        val hasNumberedDays = nonCardioDays.any { it.day.trim().startsWith("Day ", ignoreCase = true) }
 
         val pushDays = nonCardioDays.filter { it.day.contains("push", ignoreCase = true) }
         val pullDays = nonCardioDays.filter { it.day.contains("pull", ignoreCase = true) }
         val legDays = nonCardioDays.filter { it.day.contains("leg", ignoreCase = true) }
-        val isStandardSplit = pushDays.isNotEmpty() || pullDays.isNotEmpty() || legDays.isNotEmpty()
+        val isStandardSplit = !hasNumberedDays && (pushDays.isNotEmpty() || pullDays.isNotEmpty() || legDays.isNotEmpty())
         val bottomSplitDays = if (isStandardSplit) {
             nonCardioDays.filter { it !in pushDays && it !in pullDays && it !in legDays }
         } else {
@@ -440,7 +441,7 @@ private fun WorkoutButton(
                     text = day.day,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
