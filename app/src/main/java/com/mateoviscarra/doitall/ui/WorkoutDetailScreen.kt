@@ -2435,12 +2435,28 @@ private fun PlankCountdownTimer(targetTimeStr: String) {
             remainingSeconds--
             if (remainingSeconds == 0) {
                 isRunning = false
-                vibrator?.let { v ->
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        v.vibrate(VibrationEffect.createOneShot(600, VibrationEffect.DEFAULT_AMPLITUDE))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        v.vibrate(600)
+                try {
+                    vibrator?.let { v ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            v.vibrate(VibrationEffect.createOneShot(600, VibrationEffect.DEFAULT_AMPLITUDE))
+                        } else {
+                            @Suppress("DEPRECATION")
+                            v.vibrate(600)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("PlankTimer", "Vibration failed", e)
+                }
+                try {
+                    val notificationUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                    val ringtone = android.media.RingtoneManager.getRingtone(context, notificationUri)
+                    ringtone?.play()
+                } catch (e: Exception) {
+                    try {
+                        val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 100)
+                        tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 400)
+                    } catch (e2: Exception) {
+                        android.util.Log.e("PlankTimer", "Sound alert failed", e2)
                     }
                 }
             }
