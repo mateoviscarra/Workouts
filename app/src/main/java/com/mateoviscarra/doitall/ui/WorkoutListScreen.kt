@@ -494,40 +494,23 @@ private fun ThreeColumnRoutineLayout(
         val totalHSpace = hSpacePx * (numColumns - 1)
         val colWidth = ((constraints.maxWidth - totalHSpace) / numColumns).coerceAtLeast(0)
 
-        // Pass 1: measure each item at colWidth with wrap height to determine optimal uniform height
-        val wrapConstraints = Constraints(
-            minWidth = colWidth,
-            maxWidth = colWidth,
-            minHeight = 0,
-            maxHeight = constraints.maxHeight
-        )
-        val naturalPlaceables = measurables.map { it.measure(wrapConstraints) }
-        val uniformCardHeight = (naturalPlaceables.maxOfOrNull { it.height } ?: 0).coerceAtLeast(50.dp.roundToPx())
+        // Query intrinsic height at colWidth without calling measure() multiple times
+        val uniformCardHeight = (measurables.maxOfOrNull { it.maxIntrinsicHeight(colWidth) } ?: 0)
+            .coerceAtLeast(50.dp.roundToPx())
 
-        // Pass 2: force uniform height so card bounds match cell bounds and drag-swapping is seamless
-        val uniformConstraints = Constraints(
-            minWidth = colWidth,
-            maxWidth = colWidth,
-            minHeight = uniformCardHeight,
-            maxHeight = uniformCardHeight
-        )
-        val finalPlaceables = measurables.mapIndexed { idx, measurable ->
-            if (naturalPlaceables[idx].height == uniformCardHeight) {
-                naturalPlaceables[idx]
-            } else {
-                measurable.measure(uniformConstraints)
-            }
-        }
+        // Measure each measurable exactly once with fixed dimensions
+        val itemConstraints = Constraints.fixed(colWidth, uniformCardHeight)
+        val placeables = measurables.map { it.measure(itemConstraints) }
 
-        val numRows = (finalPlaceables.size + numColumns - 1) / numColumns
+        val numRows = (placeables.size + numColumns - 1) / numColumns
         val totalHeight = if (numRows == 0) {
             0
         } else {
             numRows * uniformCardHeight + vSpacePx * (numRows - 1)
         }
 
-        val computedRects = ArrayList<Rect>(finalPlaceables.size)
-        finalPlaceables.forEachIndexed { idx, _ ->
+        val computedRects = ArrayList<Rect>(placeables.size)
+        placeables.forEachIndexed { idx, _ ->
             val rowIdx = idx / numColumns
             val colIdx = idx % numColumns
             val left = colIdx * (colWidth + hSpacePx)
@@ -544,7 +527,7 @@ private fun ThreeColumnRoutineLayout(
         onSlotRectsComputed(computedRects)
 
         layout(constraints.maxWidth, totalHeight) {
-            finalPlaceables.forEachIndexed { idx, placeable ->
+            placeables.forEachIndexed { idx, placeable ->
                 val rect = computedRects[idx]
                 placeable.placeRelative(rect.left.toInt(), rect.top.toInt())
             }
