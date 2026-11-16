@@ -425,9 +425,9 @@ private fun DraggableRoutineGrid(
                 )
             }
     ) {
-        TwoColumnRoutineLayout(
-            horizontalSpacing = 12.dp,
-            verticalSpacing = 12.dp,
+        ThreeColumnRoutineLayout(
+            horizontalSpacing = 8.dp,
+            verticalSpacing = 8.dp,
             onSlotRectsComputed = { rects ->
                 slotRectsRef.clear()
                 slotRectsRef.addAll(rects)
@@ -442,6 +442,7 @@ private fun DraggableRoutineGrid(
 
                     Box(
                         modifier = Modifier
+                            .fillMaxSize()
                             .zIndex(if (isDraggingThis) 10f else 0f)
                             .graphicsLayer {
                                 if (isDraggingThis) {
@@ -450,13 +451,13 @@ private fun DraggableRoutineGrid(
                                     translationY = (grabAnchorOrigin.y + dragDelta.y) - currentTopLeft.y
                                     scaleX = 1.04f
                                     scaleY = 1.04f
-                                    shadowElevation = 18f
                                 }
                             }
                     ) {
                         WorkoutButton(
                             day = day,
                             isDragging = isDraggingThis,
+                            modifier = Modifier.fillMaxSize(),
                             onClick = {
                                 if (draggedDayKey == null && SystemClock.uptimeMillis() > suppressClickUntilMs) {
                                     onDaySelected(planIndex)
@@ -476,7 +477,7 @@ private fun DraggableRoutineGrid(
 }
 
 @Composable
-private fun TwoColumnRoutineLayout(
+private fun ThreeColumnRoutineLayout(
     horizontalSpacing: Dp,
     verticalSpacing: Dp,
     onSlotRectsComputed: (List<Rect>) -> Unit,
@@ -487,50 +488,63 @@ private fun TwoColumnRoutineLayout(
         content = content,
         modifier = modifier
     ) { measurables, constraints ->
+        val numColumns = 3
         val hSpacePx = horizontalSpacing.roundToPx()
         val vSpacePx = verticalSpacing.roundToPx()
-        val colWidth = ((constraints.maxWidth - hSpacePx) / 2).coerceAtLeast(0)
-        val minCardHeightPx = 82.dp.roundToPx()
+        val totalHSpace = hSpacePx * (numColumns - 1)
+        val colWidth = ((constraints.maxWidth - totalHSpace) / numColumns).coerceAtLeast(0)
 
-        val itemConstraints = Constraints(
+        // Pass 1: measure each item at colWidth with wrap height to determine optimal uniform height
+        val wrapConstraints = Constraints(
             minWidth = colWidth,
             maxWidth = colWidth,
-            minHeight = minCardHeightPx,
+            minHeight = 0,
             maxHeight = constraints.maxHeight
         )
+        val naturalPlaceables = measurables.map { it.measure(wrapConstraints) }
+        val uniformCardHeight = (naturalPlaceables.maxOfOrNull { it.height } ?: 0).coerceAtLeast(50.dp.roundToPx())
 
-        val placeables = measurables.map { it.measure(itemConstraints) }
-        val rowHeights = placeables.chunked(2).map { row ->
-            row.maxOfOrNull { it.height } ?: minCardHeightPx
+        // Pass 2: force uniform height so card bounds match cell bounds and drag-swapping is seamless
+        val uniformConstraints = Constraints(
+            minWidth = colWidth,
+            maxWidth = colWidth,
+            minHeight = uniformCardHeight,
+            maxHeight = uniformCardHeight
+        )
+        val finalPlaceables = measurables.mapIndexed { idx, measurable ->
+            if (naturalPlaceables[idx].height == uniformCardHeight) {
+                naturalPlaceables[idx]
+            } else {
+                measurable.measure(uniformConstraints)
+            }
         }
-        val totalHeight = if (rowHeights.isEmpty()) {
+
+        val numRows = (finalPlaceables.size + numColumns - 1) / numColumns
+        val totalHeight = if (numRows == 0) {
             0
         } else {
-            rowHeights.sum() + vSpacePx * (rowHeights.size - 1)
+            numRows * uniformCardHeight + vSpacePx * (numRows - 1)
         }
 
-        val computedRects = ArrayList<Rect>(placeables.size)
-        var cursorY = 0
-        placeables.chunked(2).forEachIndexed { rowIdx, row ->
-            val rowH = rowHeights[rowIdx]
-            var cursorX = 0
-            row.forEach { _ ->
-                computedRects.add(
-                    Rect(
-                        left = cursorX.toFloat(),
-                        top = cursorY.toFloat(),
-                        right = (cursorX + colWidth).toFloat(),
-                        bottom = (cursorY + rowH).toFloat()
-                    )
+        val computedRects = ArrayList<Rect>(finalPlaceables.size)
+        finalPlaceables.forEachIndexed { idx, _ ->
+            val rowIdx = idx / numColumns
+            val colIdx = idx % numColumns
+            val left = colIdx * (colWidth + hSpacePx)
+            val top = rowIdx * (uniformCardHeight + vSpacePx)
+            computedRects.add(
+                Rect(
+                    left = left.toFloat(),
+                    top = top.toFloat(),
+                    right = (left + colWidth).toFloat(),
+                    bottom = (top + uniformCardHeight).toFloat()
                 )
-                cursorX += colWidth + hSpacePx
-            }
-            cursorY += rowH + vSpacePx
+            )
         }
         onSlotRectsComputed(computedRects)
 
         layout(constraints.maxWidth, totalHeight) {
-            placeables.forEachIndexed { idx, placeable ->
+            finalPlaceables.forEachIndexed { idx, placeable ->
                 val rect = computedRects[idx]
                 placeable.placeRelative(rect.left.toInt(), rect.top.toInt())
             }
@@ -544,12 +558,16 @@ private fun WorkoutButton(
     isDragging: Boolean = false,
     onClick: () -> Unit,
     onEdit: () -> Unit,
-    isAccent: Boolean = false
+    isAccent: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isDragging) 8.dp else 1.dp
+        ),
         border = if (isDragging) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         colors = CardDefaults.cardColors(
             containerColor = if (isDragging) {
@@ -563,18 +581,18 @@ private fun WorkoutButton(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 10.dp, start = 10.dp, end = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
                 Text(
                     text = day.day,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -582,7 +600,9 @@ private fun WorkoutButton(
                 )
                 IconButton(
                     onClick = onEdit,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier
+                        .size(20.dp)
+                        .padding(start = 2.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Edit,

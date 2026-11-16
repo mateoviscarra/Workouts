@@ -37,6 +37,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
@@ -54,6 +56,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -107,8 +110,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -123,6 +128,7 @@ import com.mateoviscarra.doitall.data.MealIngredient
 import com.mateoviscarra.doitall.data.MealSlot
 import com.mateoviscarra.doitall.data.NutritionGoals
 import com.mateoviscarra.doitall.data.SavedMeal
+import com.mateoviscarra.doitall.data.UserProfile
 import com.mateoviscarra.doitall.data.WeightLogEntry
 import com.mateoviscarra.doitall.data.persist.WeightUnit
 import com.mateoviscarra.doitall.network.FoodScanResult
@@ -149,6 +155,7 @@ fun NutritionScreen(
 
     val selectedDateIso by viewModel.selectedDate.collectAsStateWithLifecycle()
     val goals by viewModel.goals.collectAsStateWithLifecycle()
+    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val dayTotals by viewModel.currentDayTotals.collectAsStateWithLifecycle()
     val dayLogs by viewModel.currentDayLogs.collectAsStateWithLifecycle()
     val savedMeals by viewModel.savedMeals.collectAsStateWithLifecycle()
@@ -180,8 +187,17 @@ fun NutritionScreen(
     var scannedResult by remember { mutableStateOf<FoodScanResult?>(null) }
     var scanErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Camera temp file URI
+    // Menu Coach States ("What to Order")
+    var showMenuCoachSheet by remember { mutableStateOf(false) }
+    var selectedMenuUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var menuUserText by remember { mutableStateOf("") }
+    var isAnalyzingMenu by remember { mutableStateOf(false) }
+    var menuAdviceResult by remember { mutableStateOf<String?>(null) }
+    var menuErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Camera temp file URIs
     var cameraTempUri by remember { mutableStateOf<Uri?>(null) }
+    var menuCameraTempUri by remember { mutableStateOf<Uri?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success && cameraTempUri != null) {
@@ -198,8 +214,23 @@ fun NutritionScreen(
         }
     }
 
+    val menuCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success && menuCameraTempUri != null) {
+            val uri = menuCameraTempUri!!
+            selectedMenuUris = selectedMenuUris + uri
+            showMenuCoachSheet = true
+        }
+    }
+
+    val menuGalleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) {
+            selectedMenuUris = (selectedMenuUris + uris).distinct()
+            showMenuCoachSheet = true
+        }
+    }
+
     fun runAiAnalysis() {
-        if (selectedScanUris.isEmpty()) return
+        if (selectedScanUris.isEmpty() && scanUserNote.isBlank()) return
         showScanSourceSheet = false
         isAnalyzingPhoto = true
         scope.launch {
@@ -222,12 +253,50 @@ fun NutritionScreen(
         }
     }
 
+    fun runMenuAdviceAnalysis() {
+        if (selectedMenuUris.isEmpty() && menuUserText.isBlank()) return
+        showMenuCoachSheet = false
+        isAnalyzingMenu = true
+        val remainingCal = (goals.calorieTarget - dayTotals.totalCalories).coerceAtLeast(0)
+        val remainingProt = (goals.proteinTargetGrams - dayTotals.totalProtein).coerceAtLeast(0f)
+
+        scope.launch {
+            val result = visionClient.askMenuAdvice(
+                imageUris = selectedMenuUris,
+                menuText = menuUserText,
+                userProfile = userProfile,
+                goals = goals,
+                remainingCalories = remainingCal,
+                remainingProtein = remainingProt,
+                apiKey = apiKey
+            )
+            isAnalyzingMenu = false
+            if (result.isSuccess) {
+                menuAdviceResult = result.getOrNull()
+                selectedMenuUris = emptyList()
+                menuUserText = ""
+            } else {
+                val msg = result.exceptionOrNull()?.message ?: "Unknown error"
+                menuErrorMessage = msg
+                Toast.makeText(context, "Menu Coach error: $msg", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     fun startCameraCapture() {
         val cacheDir = File(context.cacheDir, "camera").apply { mkdirs() }
         val tempFile = File(cacheDir, "capture_${System.currentTimeMillis()}.jpg")
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
         cameraTempUri = uri
         cameraLauncher.launch(uri)
+    }
+
+    fun startMenuCameraCapture() {
+        val cacheDir = File(context.cacheDir, "camera_menu").apply { mkdirs() }
+        val tempFile = File(cacheDir, "menu_${System.currentTimeMillis()}.jpg")
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
+        menuCameraTempUri = uri
+        menuCameraLauncher.launch(uri)
     }
 
     Scaffold(
@@ -303,6 +372,14 @@ fun NutritionScreen(
                                 onNavigateToSettings()
                             } else {
                                 showScanSourceSheet = true
+                            }
+                        },
+                        onMenuCoachClick = {
+                            if (apiKey.isBlank()) {
+                                Toast.makeText(context, "Please set your Gemini API key in Settings first", Toast.LENGTH_LONG).show()
+                                onNavigateToSettings()
+                            } else {
+                                showMenuCoachSheet = true
                             }
                         },
                         onQuickAddClick = {
@@ -523,7 +600,7 @@ fun NutritionScreen(
         )
     }
 
-    // --- PHOTO SCAN SOURCE SHEET ---
+    // --- PHOTO / TEXT SCAN SOURCE SHEET ---
     if (showScanSourceSheet) {
         ModalBottomSheet(
             onDismissRequest = { showScanSourceSheet = false },
@@ -541,7 +618,7 @@ fun NutritionScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Add one or multiple photos from your camera and gallery (e.g. nutrition label + serving size), refine your extra details, and analyze together.",
+                    text = "Add photos from your camera and gallery (dish, nutrition label, serving size) and/or describe what you ate in text.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -617,16 +694,16 @@ fun NutritionScreen(
                 OutlinedTextField(
                     value = scanUserNote,
                     onValueChange = { scanUserNote = it },
-                    label = { Text("Extra details (optional)") },
-                    placeholder = { Text("e.g. 2 pieces, 1.5 servings, with camote") },
+                    label = { Text("Food description or notes") },
+                    placeholder = { Text("e.g. 2 fried eggs, 2 slices whole wheat toast, or extra details for photos...") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = false,
-                    maxLines = 3
+                    minLines = 2,
+                    maxLines = 4
                 )
 
                 Button(
                     onClick = { runAiAnalysis() },
-                    enabled = selectedScanUris.isNotEmpty(),
+                    enabled = selectedScanUris.isNotEmpty() || scanUserNote.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp),
@@ -634,10 +711,11 @@ fun NutritionScreen(
                 ) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    val btnText = when (selectedScanUris.size) {
-                        0 -> "Add a Photo to Analyze"
-                        1 -> "Analyze 1 Photo with AI"
-                        else -> "Analyze ${selectedScanUris.size} Photos with AI"
+                    val btnText = when {
+                        selectedScanUris.isEmpty() && scanUserNote.isNotBlank() -> "Estimate from Description"
+                        selectedScanUris.size == 1 -> "Analyze 1 Photo with AI"
+                        selectedScanUris.size > 1 -> "Analyze ${selectedScanUris.size} Photos with AI"
+                        else -> "Add Photos or Describe Food"
                     }
                     Text(btnText, fontWeight = FontWeight.Bold)
                 }
@@ -652,7 +730,7 @@ fun NutritionScreen(
         AlertDialog(
             onDismissRequest = {},
             confirmButton = {},
-            title = { Text("Analyzing Photo...") },
+            title = { Text("Estimating Nutrition...") },
             text = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -660,7 +738,7 @@ fun NutritionScreen(
                     modifier = Modifier.padding(vertical = 8.dp)
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(36.dp))
-                    Text("Gemini is estimating calories, macros, and Bolivian culinary ingredients...")
+                    Text("Gemini is analyzing food & estimating calories and macros...")
                 }
             }
         )
@@ -711,7 +789,7 @@ fun NutritionScreen(
         AlertDialog(
             onDismissRequest = {
                 scanErrorMessage = null
-                if (selectedScanUris.isNotEmpty()) showScanSourceSheet = true
+                if (selectedScanUris.isNotEmpty() || scanUserNote.isNotBlank()) showScanSourceSheet = true
             },
             title = { Text("AI Scan Notice") },
             text = { Text(errorMsg) },
@@ -719,7 +797,7 @@ fun NutritionScreen(
                 Button(
                     onClick = {
                         scanErrorMessage = null
-                        if (selectedScanUris.isNotEmpty()) showScanSourceSheet = true
+                        if (selectedScanUris.isNotEmpty() || scanUserNote.isNotBlank()) showScanSourceSheet = true
                     }
                 ) {
                     Text("OK")
@@ -727,6 +805,293 @@ fun NutritionScreen(
             }
         )
     }
+
+    // --- MENU COACH BOTTOM SHEET ("WHAT SHOULD I ORDER?") ---
+    if (showMenuCoachSheet) {
+        val remainingCal = (goals.calorieTarget - dayTotals.totalCalories).coerceAtLeast(0)
+        val remainingProt = (goals.proteinTargetGrams - dayTotals.totalProtein).coerceAtLeast(0f).toInt()
+
+        ModalBottomSheet(
+            onDismissRequest = { showMenuCoachSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.RestaurantMenu,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "What Should I Order?",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    IconButton(
+                        onClick = { showMenuCoachSheet = false },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                    }
+                }
+
+                // Goals & Budget Context Badge
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Today's Budget Left",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            text = "~$remainingCal kcal • ~${remainingProt}g protein",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Snap menu photos, pick from gallery, or type dishes/options you're considering. The coach gives you a concrete recommendation aligned with your goals.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Add Photos Row: Camera & Gallery
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = {
+                            startMenuCameraCapture()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (selectedMenuUris.isEmpty()) "Menu Photo" else "Add Photo")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            menuGalleryLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (selectedMenuUris.isEmpty()) "Gallery" else "Add Gallery")
+                    }
+                }
+
+                // Selected Photos Thumbnail Strip
+                if (selectedMenuUris.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Menu Photos (${selectedMenuUris.size})",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            TextButton(
+                                onClick = { selectedMenuUris = emptyList() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("Clear all", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(vertical = 2.dp)
+                        ) {
+                            items(selectedMenuUris, key = { it.toString() }) { uri ->
+                                ScanPhotoThumbnail(
+                                    uri = uri,
+                                    onRemove = {
+                                        selectedMenuUris = selectedMenuUris.filterNot { it == uri }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = menuUserText,
+                    onValueChange = { menuUserText = it },
+                    label = { Text("Menu options / cravings / questions") },
+                    placeholder = { Text("e.g. Steakhouse with ribeye, grilled trout with veggies, or chicken burger. Want high protein without too many fats.") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 4
+                )
+
+                Button(
+                    onClick = { runMenuAdviceAnalysis() },
+                    enabled = selectedMenuUris.isNotEmpty() || menuUserText.isNotBlank(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    val btnText = when {
+                        selectedMenuUris.isEmpty() && menuUserText.isNotBlank() -> "Ask What to Order"
+                        selectedMenuUris.size == 1 -> "Analyze Menu Photo with AI"
+                        selectedMenuUris.size > 1 -> "Analyze ${selectedMenuUris.size} Menu Photos"
+                        else -> "Add Photos or Menu Items"
+                    }
+                    Text(btnText, fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
+
+    // --- MENU ANALYSIS PROGRESS DIALOG ---
+    if (isAnalyzingMenu) {
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {},
+            title = { Text("Consulting Menu Coach...") },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(36.dp))
+                    Text("Gemini is reviewing dishes against your goals and today's remaining targets...")
+                }
+            }
+        )
+    }
+
+    // --- MENU ADVICE RESULT DIALOG ---
+    menuAdviceResult?.let { advice ->
+        MenuAdviceResultDialog(
+            advice = advice,
+            onDismiss = { menuAdviceResult = null }
+        )
+    }
+
+    // --- MENU ERROR DIALOG ---
+    menuErrorMessage?.let { errorMsg ->
+        AlertDialog(
+            onDismissRequest = {
+                menuErrorMessage = null
+                if (selectedMenuUris.isNotEmpty() || menuUserText.isNotBlank()) showMenuCoachSheet = true
+            },
+            title = { Text("Menu Coach Notice") },
+            text = { Text(errorMsg) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        menuErrorMessage = null
+                        if (selectedMenuUris.isNotEmpty() || menuUserText.isNotBlank()) showMenuCoachSheet = true
+                    }
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun MenuAdviceResultDialog(
+    advice: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.RestaurantMenu,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Menu Coach Recommendation",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                SelectionContainer {
+                    Text(
+                        text = advice,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Got It")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(advice))
+                    Toast.makeText(context, "Copied recommendation to clipboard", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Copy")
+            }
+        }
+    )
 }
 
 @Composable
@@ -816,6 +1181,7 @@ private fun DailyLogView(
     onNextDay: () -> Unit,
     onToday: () -> Unit,
     onScanClick: () -> Unit,
+    onMenuCoachClick: () -> Unit,
     onQuickAddClick: () -> Unit,
     onManageStaplesClick: () -> Unit,
     onNewStapleClick: () -> Unit,
@@ -848,29 +1214,39 @@ private fun DailyLogView(
             onWeightClick = onWeightClick
         )
 
-        // --- 2 CLEAN ACTION BUTTONS (AI SCAN & QUICK ADD) ---
+        // --- 3 CLEAN ACTION BUTTONS (AI SCAN, MENU COACH & QUICK ADD) ---
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilledTonalButton(
                 onClick = onScanClick,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
             ) {
-                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("AI Scan", maxLines = 1, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("AI Scan", maxLines = 1, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium)
+            }
+
+            FilledTonalButton(
+                onClick = onMenuCoachClick,
+                modifier = Modifier.weight(1.2f),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
+            ) {
+                Icon(Icons.Default.RestaurantMenu, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("What to Order", maxLines = 1, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium)
             }
 
             Button(
                 onClick = onQuickAddClick,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Quick Add", maxLines = 1, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Quick Add", maxLines = 1, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium)
             }
         }
 

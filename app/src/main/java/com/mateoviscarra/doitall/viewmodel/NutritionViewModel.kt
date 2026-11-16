@@ -32,6 +32,7 @@ class NutritionViewModel @JvmOverloads constructor(
     val selectedDate: StateFlow<String> = _selectedDate.asStateFlow()
 
     val goals: StateFlow<NutritionGoals> = repository.goals
+    val userProfile: StateFlow<com.mateoviscarra.doitall.data.UserProfile> = repository.userProfile
     val savedMeals: StateFlow<List<SavedMeal>> = repository.savedMeals
     val allFoodLogs: StateFlow<List<FoodLogEntry>> = repository.foodLogs
     val allWeightLogs: StateFlow<List<WeightLogEntry>> = repository.weightLogs
