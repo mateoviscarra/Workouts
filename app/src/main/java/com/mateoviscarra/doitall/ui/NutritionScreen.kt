@@ -10,9 +10,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -61,6 +63,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -68,9 +71,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -89,6 +95,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -141,7 +148,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun NutritionScreen(
     viewModel: NutritionViewModel = viewModel(),
@@ -404,6 +411,10 @@ fun NutritionScreen(
                         onEntryClick = { entry ->
                             entryToEdit = entry
                         },
+                        onMoveEntry = { entry, targetSlot ->
+                            viewModel.moveEntrySlot(entry.id, targetSlot)
+                            Toast.makeText(context, "Moved ${entry.name} to ${targetSlot.displayName}", Toast.LENGTH_SHORT).show()
+                        },
                         onDeleteEntry = { entry ->
                             viewModel.deleteEntry(entry.id)
                         },
@@ -464,17 +475,33 @@ fun NutritionScreen(
     // --- QUICK ADD / EDIT ENTRY DIALOG ---
     if (showQuickAddDialog || entryToEdit != null) {
         val isEditing = entryToEdit != null
-        QuickAddFoodDialog(
-            initialEntry = entryToEdit,
-            initialMealSlot = entryToEdit?.mealSlot ?: initialSlotForAdd,
-            onDismiss = {
-                showQuickAddDialog = false
-                entryToEdit = null
-            },
-            onSave = { name, cals, prot, carbs, fat, slot, note, saveAsStaple, ingredients ->
-                if (isEditing && entryToEdit != null) {
-                    viewModel.updateEntry(
-                        entryToEdit!!.copy(
+        key(entryToEdit?.id ?: "new_entry_$initialSlotForAdd") {
+            QuickAddFoodDialog(
+                initialEntry = entryToEdit,
+                initialMealSlot = entryToEdit?.mealSlot ?: initialSlotForAdd,
+                onDismiss = {
+                    showQuickAddDialog = false
+                    entryToEdit = null
+                },
+                onSave = { name, cals, prot, carbs, fat, slot, note, saveAsStaple, ingredients ->
+                    if (isEditing && entryToEdit != null) {
+                        viewModel.updateEntry(
+                            entryToEdit!!.copy(
+                                name = name,
+                                calories = cals,
+                                proteinGrams = prot,
+                                carbsGrams = carbs,
+                                fatGrams = fat,
+                                mealSlot = slot,
+                                note = note,
+                                ingredients = ingredients
+                            )
+                        )
+                        if (entryToEdit!!.mealSlot != slot) {
+                            Toast.makeText(context, "Moved $name to ${slot.displayName}", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        viewModel.addManualEntry(
                             name = name,
                             calories = cals,
                             proteinGrams = prot,
@@ -484,40 +511,29 @@ fun NutritionScreen(
                             note = note,
                             ingredients = ingredients
                         )
-                    )
-                } else {
-                    viewModel.addManualEntry(
-                        name = name,
-                        calories = cals,
-                        proteinGrams = prot,
-                        carbsGrams = carbs,
-                        fatGrams = fat,
-                        mealSlot = slot,
-                        note = note,
-                        ingredients = ingredients
-                    )
-                }
+                    }
 
-                if (saveAsStaple) {
-                    viewModel.saveMeal(
-                        SavedMeal(
-                            name = name,
-                            calories = cals,
-                            proteinGrams = prot,
-                            carbsGrams = carbs,
-                            fatGrams = fat,
-                            servingDescription = note,
-                            isPinnedStaple = true,
-                            defaultMealSlot = slot,
-                            ingredients = ingredients
+                    if (saveAsStaple) {
+                        viewModel.saveMeal(
+                            SavedMeal(
+                                name = name,
+                                calories = cals,
+                                proteinGrams = prot,
+                                carbsGrams = carbs,
+                                fatGrams = fat,
+                                servingDescription = note,
+                                isPinnedStaple = true,
+                                defaultMealSlot = slot,
+                                ingredients = ingredients
+                            )
                         )
-                    )
-                }
+                    }
 
-                showQuickAddDialog = false
-                entryToEdit = null
-            }
-        )
+                    showQuickAddDialog = false
+                    entryToEdit = null
+                }
+            )
+        }
     }
 
     // --- STAPLE EDITOR DIALOG ---
@@ -1188,6 +1204,7 @@ private fun DailyLogView(
     onLogStaple: (SavedMeal) -> Unit,
     onAddSlotEntry: (MealSlot) -> Unit,
     onEntryClick: (FoodLogEntry) -> Unit,
+    onMoveEntry: (FoodLogEntry, MealSlot) -> Unit,
     onDeleteEntry: (FoodLogEntry) -> Unit,
     onWeightClick: () -> Unit
 ) {
@@ -1303,6 +1320,7 @@ private fun DailyLogView(
                 entries = entriesForSlot,
                 onAddClick = { onAddSlotEntry(slot) },
                 onEntryClick = onEntryClick,
+                onMoveEntry = onMoveEntry,
                 onDeleteEntry = onDeleteEntry
             )
         }
@@ -2613,6 +2631,7 @@ private fun MealSlotCard(
     entries: List<FoodLogEntry>,
     onAddClick: () -> Unit,
     onEntryClick: (FoodLogEntry) -> Unit,
+    onMoveEntry: (FoodLogEntry, MealSlot) -> Unit,
     onDeleteEntry: (FoodLogEntry) -> Unit
 ) {
     val totalCals = entries.sumOf { it.totalCalories }
@@ -2669,6 +2688,7 @@ private fun MealSlotCard(
                     FoodEntryRow(
                         entry = entry,
                         onClick = { onEntryClick(entry) },
+                        onMove = { targetSlot -> onMoveEntry(entry, targetSlot) },
                         onDelete = { onDeleteEntry(entry) }
                     )
                 }
@@ -2677,17 +2697,24 @@ private fun MealSlotCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FoodEntryRow(
     entry: FoodLogEntry,
     onClick: () -> Unit,
+    onMove: (MealSlot) -> Unit,
     onDelete: () -> Unit
 ) {
+    var showMoveMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = { showMoveMenu = true }
+            )
             .background(MaterialTheme.colorScheme.surface)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -2749,16 +2776,66 @@ private fun FoodEntryRow(
             }
         }
 
-        IconButton(
-            onClick = onDelete,
-            modifier = Modifier.size(28.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "Delete",
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Box {
+                IconButton(
+                    onClick = { showMoveMenu = true },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SwapHoriz,
+                        contentDescription = "Move meal to another box",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMoveMenu,
+                    onDismissRequest = { showMoveMenu = false }
+                ) {
+                    Text(
+                        text = "Move to...",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                    HorizontalDivider()
+                    MealSlot.entries.forEach { targetSlot ->
+                        val isCurrent = targetSlot == entry.mealSlot
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = if (isCurrent) "${targetSlot.displayName} (current)" else targetSlot.displayName,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            },
+                            enabled = !isCurrent,
+                            onClick = {
+                                showMoveMenu = false
+                                onMove(targetSlot)
+                            }
+                        )
+                    }
+                }
+            }
+
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Delete",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -3042,16 +3119,16 @@ private fun QuickAddFoodDialog(
     onDismiss: () -> Unit,
     onSave: (name: String, calories: Int, prot: Float, carbs: Float, fat: Float, slot: MealSlot, note: String, saveAsStaple: Boolean, ingredients: List<MealIngredient>) -> Unit
 ) {
-    var name by remember { mutableStateOf(initialEntry?.name ?: "") }
-    var calories by remember { mutableStateOf(initialEntry?.calories?.toString() ?: "") }
-    var protein by remember { mutableStateOf(formatMacroInput(initialEntry?.proteinGrams)) }
-    var carbs by remember { mutableStateOf(formatMacroInput(initialEntry?.carbsGrams)) }
-    var fat by remember { mutableStateOf(formatMacroInput(initialEntry?.fatGrams)) }
-    var selectedSlot by remember { mutableStateOf(initialEntry?.mealSlot ?: initialMealSlot) }
-    var note by remember { mutableStateOf(initialEntry?.note ?: "") }
+    var name by remember(initialEntry) { mutableStateOf(initialEntry?.name ?: "") }
+    var calories by remember(initialEntry) { mutableStateOf(initialEntry?.calories?.toString() ?: "") }
+    var protein by remember(initialEntry) { mutableStateOf(formatMacroInput(initialEntry?.proteinGrams)) }
+    var carbs by remember(initialEntry) { mutableStateOf(formatMacroInput(initialEntry?.carbsGrams)) }
+    var fat by remember(initialEntry) { mutableStateOf(formatMacroInput(initialEntry?.fatGrams)) }
+    var selectedSlot by remember(initialEntry, initialMealSlot) { mutableStateOf(initialEntry?.mealSlot ?: initialMealSlot) }
+    var note by remember(initialEntry) { mutableStateOf(initialEntry?.note ?: "") }
     var saveAsStaple by remember { mutableStateOf(false) }
 
-    var ingredients by remember { mutableStateOf(initialEntry?.ingredients ?: emptyList()) }
+    var ingredients by remember(initialEntry) { mutableStateOf(initialEntry?.ingredients ?: emptyList()) }
     var showIngredientDialog by remember { mutableStateOf(false) }
     var editingIngredientIndex by remember { mutableStateOf<Int?>(null) }
     var ingredientToEdit by remember { mutableStateOf<MealIngredient?>(null) }
@@ -3081,7 +3158,25 @@ private fun QuickAddFoodDialog(
                 )
 
                 // Meal Slot Selector Chips
-                Text("Meal Slot", style = MaterialTheme.typography.labelMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (initialEntry == null) "Meal Box" else "Meal Box (Move Slot)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (initialEntry != null && selectedSlot != initialEntry.mealSlot) {
+                        Text(
+                            text = "Moving to ${selectedSlot.displayName}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)

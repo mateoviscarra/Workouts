@@ -177,6 +177,13 @@ class NutritionViewModel @JvmOverloads constructor(
         repository.updateFoodLogEntry(entry)
     }
 
+    fun moveEntrySlot(entryId: String, newSlot: MealSlot) {
+        val entry = allFoodLogs.value.firstOrNull { it.id == entryId } ?: return
+        if (entry.mealSlot != newSlot) {
+            repository.updateFoodLogEntry(entry.copy(mealSlot = newSlot))
+        }
+    }
+
     fun deleteEntry(entryId: String) {
         repository.deleteFoodLogEntry(entryId)
     }
