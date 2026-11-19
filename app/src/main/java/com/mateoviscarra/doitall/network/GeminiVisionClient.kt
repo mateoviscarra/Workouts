@@ -80,13 +80,13 @@ class GeminiVisionClient(private val context: Context) {
                 return@withContext Result.failure(IllegalArgumentException("Failed to decode the selected image(s)."))
             }
 
-            // List of active models in order of preference
+            // List of active models in order of speed and preference (flash-lite models provide sub-2s responses)
             val models = listOf(
-                "gemini-3.6-flash",
                 "gemini-flash-lite-latest",
+                "gemini-3.5-flash-lite",
                 "gemini-3.1-flash-lite",
-                "gemini-flash-latest",
-                "gemini-3.8-flash"
+                "gemini-3.6-flash",
+                "gemini-flash-latest"
             )
             var lastError: Exception? = null
 
@@ -99,11 +99,16 @@ class GeminiVisionClient(private val context: Context) {
                     val msg = e.message.orEmpty()
                     Log.w(TAG, "Model $model attempt failed: $msg")
                     lastError = e
-                    // If it's a model-not-found (404), temporarily unavailable (503), or rate-limit (429), try next model
+                    // If it's a model-not-found (404), temporarily unavailable (503), rate-limit (429), or timeout, try next model
                     val isRecoverable = msg.contains("404") || msg.contains("503") ||
                             msg.contains("429") || msg.contains("UNAVAILABLE") ||
                             msg.contains("not found", ignoreCase = true) ||
-                            msg.contains("no longer available", ignoreCase = true)
+                            msg.contains("no longer available", ignoreCase = true) ||
+                            msg.contains("timeout", ignoreCase = true) ||
+                            msg.contains("timed out", ignoreCase = true) ||
+                            e is java.net.SocketTimeoutException ||
+                            e is java.net.SocketException ||
+                            e is java.io.InterruptedIOException
                     if (!isRecoverable) {
                         // Bad request (e.g. invalid API key or malformed request), don't loop through all models
                         throw e
@@ -130,8 +135,8 @@ class GeminiVisionClient(private val context: Context) {
         val conn = (url.openConnection() as HttpsURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("Content-Type", "application/json")
-            connectTimeout = 30000
-            readTimeout = 60000
+            connectTimeout = 15000
+            readTimeout = 25000
             doInput = true
             doOutput = true
         }
@@ -218,6 +223,10 @@ class GeminiVisionClient(private val context: Context) {
         // Generation config for JSON
         val genConfig = JSONObject().apply {
             put("response_mime_type", "application/json")
+            put("maxOutputTokens", 512)
+            if (!model.contains("lite")) {
+                put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+            }
         }
         requestJson.put("generationConfig", genConfig)
 
@@ -364,11 +373,11 @@ class GeminiVisionClient(private val context: Context) {
             }
 
             val models = listOf(
-                "gemini-3.6-flash",
                 "gemini-flash-lite-latest",
+                "gemini-3.5-flash-lite",
                 "gemini-3.1-flash-lite",
-                "gemini-flash-latest",
-                "gemini-3.8-flash"
+                "gemini-3.6-flash",
+                "gemini-flash-latest"
             )
             var lastError: Exception? = null
 
@@ -393,7 +402,12 @@ class GeminiVisionClient(private val context: Context) {
                     val isRecoverable = msg.contains("404") || msg.contains("503") ||
                             msg.contains("429") || msg.contains("UNAVAILABLE") ||
                             msg.contains("not found", ignoreCase = true) ||
-                            msg.contains("no longer available", ignoreCase = true)
+                            msg.contains("no longer available", ignoreCase = true) ||
+                            msg.contains("timeout", ignoreCase = true) ||
+                            msg.contains("timed out", ignoreCase = true) ||
+                            e is java.net.SocketTimeoutException ||
+                            e is java.net.SocketException ||
+                            e is java.io.InterruptedIOException
                     if (!isRecoverable) {
                         throw e
                     }
@@ -422,8 +436,8 @@ class GeminiVisionClient(private val context: Context) {
         val conn = (url.openConnection() as HttpsURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("Content-Type", "application/json")
-            connectTimeout = 30000
-            readTimeout = 60000
+            connectTimeout = 15000
+            readTimeout = 25000
             doInput = true
             doOutput = true
         }
@@ -493,6 +507,14 @@ class GeminiVisionClient(private val context: Context) {
         }
         requestJson.put("contents", contents)
 
+        val genConfig = JSONObject().apply {
+            put("maxOutputTokens", 1024)
+            if (!model.contains("lite")) {
+                put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+            }
+        }
+        requestJson.put("generationConfig", genConfig)
+
         // Write request
         OutputStreamWriter(conn.outputStream).use { writer ->
             writer.write(requestJson.toString())
@@ -536,8 +558,8 @@ class GeminiVisionClient(private val context: Context) {
             BitmapFactory.decodeStream(inputStream, null, options)
             inputStream.close()
 
-            // Calculate inSampleSize to fit inside 1024x1024
-            val maxDim = 1024
+            // Calculate inSampleSize to fit inside 768x768 (cuts payload by ~65%, speeds up upload significantly)
+            val maxDim = 768
             var sampleSize = 1
             var width = options.outWidth
             var height = options.outHeight
@@ -571,7 +593,7 @@ class GeminiVisionClient(private val context: Context) {
             }
 
             val byteArrayOutputStream = ByteArrayOutputStream()
-            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream)
+            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 72, byteArrayOutputStream)
             val bytes = byteArrayOutputStream.toByteArray()
             Base64.encodeToString(bytes, Base64.NO_WRAP)
         } catch (e: Exception) {
