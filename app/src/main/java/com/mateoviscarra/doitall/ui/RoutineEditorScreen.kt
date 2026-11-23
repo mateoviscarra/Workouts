@@ -1,5 +1,6 @@
 package com.mateoviscarra.doitall.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -33,6 +35,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -60,11 +63,12 @@ import androidx.compose.ui.unit.dp
 import com.mateoviscarra.doitall.data.Category
 import com.mateoviscarra.doitall.data.CategoryExercise
 import com.mateoviscarra.doitall.data.DayExercise
+import com.mateoviscarra.doitall.data.KNOWN_CARDIO_IDS
 import com.mateoviscarra.doitall.data.NewWorkoutDay
 
 private val COMMON_MUSCLE_GROUPS = listOf(
     "chest", "back", "quads", "hamstrings", "glutes", "calves",
-    "shoulders", "biceps", "triceps", "abs", "cardio"
+    "shoulders", "biceps", "triceps", "abs"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,7 +83,18 @@ fun RoutineEditorScreen(
     onAddExerciseToCatalog: (categoryId: String, CategoryExercise) -> Unit
 ) {
     var dayName by remember { mutableStateOf(initialDay?.day ?: "") }
-    var selectedMuscles by remember { mutableStateOf(initialDay?.muscleGroups?.toSet() ?: emptySet()) }
+    var selectedMuscles by remember {
+        mutableStateOf(
+            initialDay?.muscleGroups
+                ?.filterNot { it.equals("cardio", ignoreCase = true) }
+                ?.toSet() ?: emptySet()
+        )
+    }
+    var includeCardio by remember {
+        mutableStateOf(
+            initialDay?.muscleGroups?.any { it.equals("cardio", ignoreCase = true) } == true
+        )
+    }
     var exercises by remember { mutableStateOf(initialDay?.exercises ?: emptyList()) }
     var notesText by remember { mutableStateOf(initialDay?.notes?.joinToString("\n") ?: "") }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
@@ -110,10 +125,12 @@ fun RoutineEditorScreen(
                         onClick = {
                             if (dayName.isNotBlank()) {
                                 val notes = notesText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                                val finalMuscleGroups = selectedMuscles.toList() +
+                                    if (includeCardio) listOf("cardio") else emptyList()
                                 onSave(
                                     NewWorkoutDay(
                                         day = dayName.trim(),
-                                        muscleGroups = selectedMuscles.toList(),
+                                        muscleGroups = finalMuscleGroups,
                                         isRestDay = false,
                                         notes = notes,
                                         exercises = exercises
@@ -177,6 +194,54 @@ fun RoutineEditorScreen(
                                     }
                                 },
                                 label = { Text(muscle.replaceFirstChar { it.uppercase() }) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!dayName.trim().equals("Cardio", ignoreCase = true)) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { includeCardio = !includeCardio },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (includeCardio) {
+                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.DirectionsRun,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Include Cardio",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Shows the dedicated Cardio logger on this day (logged separately from exercises)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Checkbox(
+                                checked = includeCardio,
+                                onCheckedChange = { includeCardio = it }
                             )
                         }
                     }
@@ -361,10 +426,27 @@ fun RoutineEditorScreen(
         } else {
             emptyList()
         }
+        val isCardioRoutine = dayName.trim().equals("Cardio", ignoreCase = true)
+        val cardioCategoryIds = categories
+            .filter { it.id.equals("cardio", ignoreCase = true) || it.name.equals("Cardio", ignoreCase = true) }
+            .flatMap { it.exercises }
+            .map { it.id }
+            .toSet()
+        val blockedCardioIds = if (isCardioRoutine) emptySet() else KNOWN_CARDIO_IDS + cardioCategoryIds
+        val pickerCategories = if (isCardioRoutine) {
+            categories
+        } else {
+            categories.filterNot { it.id.equals("cardio", ignoreCase = true) || it.name.equals("Cardio", ignoreCase = true) }
+        }
+        val pickerExercises = allExercises.filter { ex ->
+            ex.id !in excludedIds &&
+                ex.id !in blockedCardioIds &&
+                !ex.categories.any { c -> !isCardioRoutine && c.equals("cardio", ignoreCase = true) }
+        }
 
         SearchableExercisePickerDialog(
-            categories = categories,
-            allExercises = allExercises.filter { it.id !in excludedIds },
+            categories = pickerCategories,
+            allExercises = pickerExercises,
             onDismiss = { isPickerOpen = false },
             onSelectExercise = { exerciseId ->
                 if (targetSlotIndex == null) {

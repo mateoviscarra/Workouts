@@ -106,6 +106,7 @@ import com.mateoviscarra.doitall.calendar.CalendarManager
 import com.mateoviscarra.doitall.data.CompletedExerciseRecord
 import com.mateoviscarra.doitall.data.ExerciseDefinition
 import com.mateoviscarra.doitall.data.ExerciseLocation
+import com.mateoviscarra.doitall.data.KNOWN_CARDIO_IDS
 import com.mateoviscarra.doitall.data.PersonalRecord
 import com.mateoviscarra.doitall.data.WorkoutDay
 import com.mateoviscarra.doitall.data.WorkoutPlan
@@ -161,8 +162,7 @@ fun WorkoutDetailScreen(
         workoutPlan.schedule.firstOrNull { it.day.trim().equals("Cardio", ignoreCase = true) }
     }
     val hasAttachedCardio = remember(workoutDay) {
-        workoutDay.muscleGroups.any { it.equals("cardio", ignoreCase = true) } ||
-            workoutDay.day.contains("Recovery", ignoreCase = true)
+        workoutDay.muscleGroups.any { it.equals("cardio", ignoreCase = true) }
     }
     var showFullCardioScreen by remember { mutableStateOf(false) }
 
@@ -178,7 +178,8 @@ fun WorkoutDetailScreen(
             },
             calendarManager = calendarManager,
             planViewModel = planViewModel,
-            historyViewModel = historyViewModel
+            historyViewModel = historyViewModel,
+            preferenceDayKey = dayKey
         )
         return
     }
@@ -192,9 +193,9 @@ fun WorkoutDetailScreen(
             ?.mapNotNull { id -> workoutPlan.catalog[id] }
             .orEmpty()
     }
-    var selectedCardioId by remember(cardioActivities) {
+    var selectedCardioId by remember(cardioActivities, dayKey) {
         val defaultId = cardioActivities.firstOrNull()?.id ?: ""
-        val saved = cardioStore.getSelectedActivityId(defaultId)
+        val saved = cardioStore.getSelectedActivityId(defaultId, dayKey)
         val validId = if (cardioActivities.any { it.id == saved }) saved else defaultId
         mutableStateOf(validId)
     }
@@ -441,7 +442,7 @@ fun WorkoutDetailScreen(
                             currentConfig = currentCardioConfig,
                             onSelectActivity = { def ->
                                 selectedCardioId = def.id
-                                cardioStore.setSelectedActivityId(def.id)
+                                cardioStore.setSelectedActivityId(def.id, dayKey)
                                 currentCardioConfig = cardioStore.getConfig(def)
                             },
                             onOpenFullCardio = { showFullCardioScreen = true },
@@ -928,7 +929,17 @@ fun WorkoutDetailScreen(
 
     activeTemporaryPickerSlotIndex?.let { slotIndex ->
         val slotState = resolved.dayLog.slots[slotIndex.toString()]
-        val allCatalogExercises = planViewModel?.plan?.value?.allExercises() ?: workoutPlan.catalog.values.map {
+        val rawCategories = planViewModel?.plan?.value?.categories ?: emptyList()
+        val categories = rawCategories.filterNot {
+            it.id.equals("cardio", ignoreCase = true) || it.name.equals("Cardio", ignoreCase = true)
+        }
+        val cardioCategoryExIds = rawCategories
+            .filter { it.id.equals("cardio", ignoreCase = true) || it.name.equals("Cardio", ignoreCase = true) }
+            .flatMap { it.exercises }
+            .map { it.id }
+            .toSet()
+        val excludedCardioIds = KNOWN_CARDIO_IDS + cardioCategoryExIds
+        val rawCatalogExercises = planViewModel?.plan?.value?.allExercises() ?: workoutPlan.catalog.values.map {
             CategoryExercise(
                 id = it.id,
                 name = it.name,
@@ -943,7 +954,10 @@ fun WorkoutDetailScreen(
                 defaultNotes = it.defaultNotes
             )
         }
-        val categories = planViewModel?.plan?.value?.categories ?: emptyList()
+        val allCatalogExercises = rawCatalogExercises.filter { ex ->
+            ex.id !in excludedCardioIds &&
+                !ex.categories.any { c -> c.equals("cardio", ignoreCase = true) }
+        }
 
         TemporaryExercisePickerSheet(
             allExercises = allCatalogExercises,
@@ -991,6 +1005,7 @@ fun WorkoutDetailScreen(
             snackbarHostState = snackbarHostState,
             scope = scope,
             onDurationUpdated = { finalDurationMinutes ->
+                cardioStore.setSelectedActivityId(selectedCardioDef.id, dayKey)
                 if (finalDurationMinutes != currentCardioConfig.durationMinutes) {
                     val updated = currentCardioConfig.copy(durationMinutes = finalDurationMinutes)
                     currentCardioConfig = updated

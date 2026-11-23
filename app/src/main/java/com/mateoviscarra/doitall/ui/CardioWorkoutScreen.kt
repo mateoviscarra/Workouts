@@ -122,12 +122,20 @@ data class CardioActivityConfig(
 class CardioPreferencesStore(context: Context) {
     private val prefs = context.getSharedPreferences("cardio_prefs", Context.MODE_PRIVATE)
 
-    fun getSelectedActivityId(defaultId: String): String {
+    fun getSelectedActivityId(defaultId: String, dayKey: String? = null): String {
+        if (!dayKey.isNullOrBlank()) {
+            val perDay = prefs.getString("selected_activity_id_day_${dayKey.trim()}", null)
+            if (!perDay.isNullOrBlank()) return perDay
+        }
         return prefs.getString("selected_activity_id", null) ?: defaultId
     }
 
-    fun setSelectedActivityId(exerciseId: String) {
-        prefs.edit().putString("selected_activity_id", exerciseId).apply()
+    fun setSelectedActivityId(exerciseId: String, dayKey: String? = null) {
+        val editor = prefs.edit().putString("selected_activity_id", exerciseId)
+        if (!dayKey.isNullOrBlank()) {
+            editor.putString("selected_activity_id_day_${dayKey.trim()}", exerciseId)
+        }
+        editor.apply()
     }
 
     fun getConfig(def: ExerciseDefinition): CardioActivityConfig {
@@ -223,7 +231,8 @@ fun CardioWorkoutScreen(
     onEditRoutine: () -> Unit,
     calendarManager: CalendarManager,
     planViewModel: WorkoutPlanViewModel? = null,
-    historyViewModel: HistoryViewModel = viewModel()
+    historyViewModel: HistoryViewModel = viewModel(),
+    preferenceDayKey: String? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -237,9 +246,9 @@ fun CardioWorkoutScreen(
             .mapNotNull { id -> workoutPlan.catalog[id] }
     }
 
-    var selectedId by remember(activities) {
+    var selectedId by remember(activities, preferenceDayKey) {
         val defaultId = activities.firstOrNull()?.id ?: ""
-        val saved = cardioStore.getSelectedActivityId(defaultId)
+        val saved = cardioStore.getSelectedActivityId(defaultId, preferenceDayKey)
         val validId = if (activities.any { it.id == saved }) saved else defaultId
         mutableStateOf(validId)
     }
@@ -388,7 +397,7 @@ fun CardioWorkoutScreen(
                                 Card(
                                     onClick = {
                                         selectedId = def.id
-                                        cardioStore.setSelectedActivityId(def.id)
+                                        cardioStore.setSelectedActivityId(def.id, preferenceDayKey)
                                         currentConfig = cardioStore.getConfig(def)
                                     },
                                     modifier = Modifier.weight(1f),
@@ -871,7 +880,7 @@ fun CardioWorkoutScreen(
                                 )
                             )
                             selectedId = id
-                            cardioStore.setSelectedActivityId(id)
+                            cardioStore.setSelectedActivityId(id, preferenceDayKey)
                         }
                         showAddActivityDialog = false
                     },
@@ -897,6 +906,7 @@ fun CardioWorkoutScreen(
             snackbarHostState = snackbarHostState,
             scope = scope,
             onDurationUpdated = { finalDurationMinutes ->
+                cardioStore.setSelectedActivityId(selectedDef.id, preferenceDayKey)
                 if (finalDurationMinutes != currentConfig.durationMinutes) {
                     updateConfig { it.copy(durationMinutes = finalDurationMinutes) }
                 }

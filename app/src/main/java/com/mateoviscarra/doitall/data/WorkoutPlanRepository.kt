@@ -225,8 +225,7 @@ class WorkoutPlanRepository(
                         )
                     }
                 }
-                val isRecovery = day.day.contains("Recovery", ignoreCase = true)
-                val updatedMuscles = if ((hadCardioSlot || isRecovery) &&
+                val updatedMuscles = if (hadCardioSlot &&
                     day.muscleGroups.none { it.equals("cardio", ignoreCase = true) }
                 ) {
                     day.muscleGroups + "cardio"
