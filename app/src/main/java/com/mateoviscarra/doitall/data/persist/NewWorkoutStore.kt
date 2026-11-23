@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.mateoviscarra.doitall.data.Category
 import com.mateoviscarra.doitall.data.CategoryExercise
 import com.mateoviscarra.doitall.data.DayExercise
+import com.mateoviscarra.doitall.data.KNOWN_CARDIO_IDS
 import com.mateoviscarra.doitall.data.NewWorkoutDay
 import com.mateoviscarra.doitall.data.NewWorkoutPlan
 import org.json.JSONArray
@@ -61,18 +62,73 @@ class NewWorkoutStore(context: Context) {
             val categoriesArr = JSONArray(obj.getJSONArray("categories").toString())
             val daysArr = JSONArray(obj.getJSONArray("days").toString())
 
-            // Ensure standalone "Cardio" day is preserved so the dedicated Cardio widget stays available
+            // Collect all cardio IDs (known defaults + anything inside standalone "Cardio" day)
+            val cardioIds = KNOWN_CARDIO_IDS.toMutableSet()
             var hasStandaloneCardio = false
             for (i in 0 until daysArr.length()) {
                 val dayObj = daysArr.optJSONObject(i) ?: continue
                 if (dayObj.optString("day", "").trim().equals("Cardio", ignoreCase = true)) {
                     hasStandaloneCardio = true
-                    break
+                    val exArr = dayObj.optJSONArray("exercises") ?: continue
+                    for (j in 0 until exArr.length()) {
+                        val exObj = exArr.optJSONObject(j) ?: continue
+                        exObj.optString("exerciseId").takeIf { it.isNotBlank() }?.let { cardioIds.add(it) }
+                    }
                 }
             }
+
+            ensureCardioExercisesInCategories(categoriesArr)
             if (!hasStandaloneCardio) {
-                ensureCardioExercisesInCategories(categoriesArr)
                 daysArr.put(defaultStandaloneCardioDayJson())
+            }
+
+            // Strip cardio exercise slots from non-Cardio days and add "cardio" to their muscleGroups
+            for (i in 0 until daysArr.length()) {
+                val dayObj = daysArr.optJSONObject(i) ?: continue
+                val dayName = dayObj.optString("day", "").trim()
+                if (dayName.equals("Cardio", ignoreCase = true)) continue
+
+                val exArr = dayObj.optJSONArray("exercises") ?: JSONArray()
+                val cleanedExArr = JSONArray()
+                var hadCardio = false
+                for (j in 0 until exArr.length()) {
+                    val exObj = exArr.optJSONObject(j) ?: continue
+                    val primary = exObj.optString("exerciseId", "")
+                    val altsArr = exObj.optJSONArray("alternatives")
+                    val allIds = buildList {
+                        if (primary.isNotBlank()) add(primary)
+                        if (altsArr != null) {
+                            for (k in 0 until altsArr.length()) {
+                                altsArr.optString(k).takeIf { it.isNotBlank() }?.let { add(it) }
+                            }
+                        }
+                    }
+                    if (allIds.any { it in cardioIds }) {
+                        hadCardio = true
+                    }
+                    val remaining = allIds.filter { it !in cardioIds }
+                    if (remaining.isNotEmpty()) {
+                        val copyObj = JSONObject(exObj.toString())
+                        copyObj.put("exerciseId", remaining.first())
+                        if (remaining.size > 1) {
+                            copyObj.put("alternatives", JSONArray(remaining.drop(1)))
+                        } else {
+                            copyObj.remove("alternatives")
+                        }
+                        cleanedExArr.put(copyObj)
+                    }
+                }
+                dayObj.put("exercises", cleanedExArr)
+
+                val isRecovery = dayName.contains("Recovery", ignoreCase = true)
+                if (hadCardio || isRecovery) {
+                    val mgKey = if (dayObj.has("muscle_groups") && !dayObj.has("muscleGroups")) "muscle_groups" else "muscleGroups"
+                    val mgArr = dayObj.optJSONArray(mgKey) ?: JSONArray().also { dayObj.put(mgKey, it) }
+                    val hasCardioTag = (0 until mgArr.length()).any { mgArr.optString(it).equals("cardio", ignoreCase = true) }
+                    if (!hasCardioTag) {
+                        mgArr.put("cardio")
+                    }
+                }
             }
 
             prefs.edit()
@@ -86,11 +142,13 @@ class NewWorkoutStore(context: Context) {
 
     private fun ensureCardioExercisesInCategories(categoriesArr: JSONArray) {
         val existingIds = mutableSetOf<String>()
-        var accessoryObj: JSONObject? = null
+        var cardioCatObj: JSONObject? = null
         for (i in 0 until categoriesArr.length()) {
             val catObj = categoriesArr.optJSONObject(i) ?: continue
-            if (catObj.optString("id", "").equals("accessory", ignoreCase = true)) {
-                accessoryObj = catObj
+            if (catObj.optString("id", "").equals("cardio", ignoreCase = true) ||
+                catObj.optString("name", "").equals("Cardio", ignoreCase = true)
+            ) {
+                cardioCatObj = catObj
             }
             val exArr = catObj.optJSONArray("exercises") ?: continue
             for (j in 0 until exArr.length()) {
@@ -98,16 +156,16 @@ class NewWorkoutStore(context: Context) {
                 if (!id.isNullOrBlank()) existingIds.add(id)
             }
         }
-        if (accessoryObj == null) {
-            accessoryObj = JSONObject().apply {
-                put("id", "accessory")
-                put("name", "Accessory")
+        if (cardioCatObj == null) {
+            cardioCatObj = JSONObject().apply {
+                put("id", "cardio")
+                put("name", "Cardio")
                 put("exercises", JSONArray())
             }
-            categoriesArr.put(accessoryObj)
+            categoriesArr.put(cardioCatObj)
         }
-        val accExercises = accessoryObj.optJSONArray("exercises") ?: JSONArray().also {
-            accessoryObj.put("exercises", it)
+        val cardioExercises = cardioCatObj.optJSONArray("exercises") ?: JSONArray().also {
+            cardioCatObj.put("exercises", it)
         }
         val defaults = listOf(
             Triple("running", "Running", "20min"),
@@ -118,7 +176,7 @@ class NewWorkoutStore(context: Context) {
         )
         for ((id, name, reps) in defaults) {
             if (id !in existingIds) {
-                accExercises.put(JSONObject().apply {
+                cardioExercises.put(JSONObject().apply {
                     put("id", id)
                     put("name", name)
                     put("defaultSets", 1)
@@ -126,7 +184,7 @@ class NewWorkoutStore(context: Context) {
                     put("defaultLoad", "")
                     put("isTimed", true)
                     put("defaultTime", reps)
-                    put("isBodyweight", true)
+                    put("isBodyweight", false)
                     put("weightUnit", "kg")
                     put("usesStraps", false)
                     put("defaultNotes", if (id == "stair_master_") "Level 5" else "")

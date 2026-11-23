@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -75,6 +76,7 @@ import com.mateoviscarra.doitall.data.WorkoutPlan
 import com.mateoviscarra.doitall.data.WorkoutSessionRecord
 import com.mateoviscarra.doitall.viewmodel.HistoryViewModel
 import com.mateoviscarra.doitall.viewmodel.WorkoutPlanViewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.LocalDate
@@ -316,6 +318,7 @@ fun CardioWorkoutScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -844,10 +847,17 @@ fun CardioWorkoutScreen(
                                 isTimed = true,
                                 defaultTime = "${mins}min"
                             )
-                            planViewModel.addExerciseToCategory("accessory", newEx)
+                            val currentPlanBeforeAdd = planViewModel.plan.value
+                            val targetCatId = if (currentPlanBeforeAdd.categories.any { it.id.equals("cardio", ignoreCase = true) }) {
+                                currentPlanBeforeAdd.categories.first { it.id.equals("cardio", ignoreCase = true) }.id
+                            } else {
+                                "accessory"
+                            }
+                            planViewModel.addExerciseToCategory(targetCatId, newEx)
                             val currentPlan = planViewModel.plan.value
-                            val cardioDay = currentPlan.days.find { it.day.equals(workoutDay.day, ignoreCase = true) }
-                            if (cardioDay != null) {
+                            val cardioDay = currentPlan.days.find { it.day.trim().equals("Cardio", ignoreCase = true) }
+                                ?: currentPlan.days.find { it.day.equals(workoutDay.day, ignoreCase = true) }
+                            if (cardioDay != null && cardioDay.exercises.none { it.exerciseId == id }) {
                                 val updatedDay = cardioDay.copy(
                                     exercises = cardioDay.exercises + DayExercise(exerciseId = id)
                                 )
@@ -879,102 +889,128 @@ fun CardioWorkoutScreen(
     }
 
     if (showFinishDialog && selectedDef != null) {
-        val intensityStr = currentConfig.formattedIntensity()
-        val previewRecord = CompletedExerciseRecord(
-            exerciseId = selectedDef.id,
-            exerciseName = selectedDef.name,
-            sets = 1,
-            repsSummary = "${currentConfig.durationMinutes} min",
-            weight = intensityStr,
-            numericWeight = 0.0,
-            isBodyweight = false,
-            usesStraps = false,
-            comment = currentConfig.notes.trim(),
-            isPR = false,
-            isCardio = true
-        )
-
-        UnifiedFinishWorkoutDialog(
-            workoutTitle = "Cardio",
-            completedExercises = listOf(previewRecord),
-            isCalendarConnected = calendarManager.isConnected(),
-            initialDurationMinutes = currentConfig.durationMinutes,
-            isCardioSession = true,
-            onDismiss = { showFinishDialog = false },
-            onConfirm = { _, syncToCalendar, finalDurationMinutes, timingOption, customDate, customStartTime ->
-                showFinishDialog = false
-                // Ensure config & record match the exact confirmed duration
+        CardioFinishDialogHost(
+            selectedDef = selectedDef,
+            config = currentConfig,
+            calendarManager = calendarManager,
+            historyViewModel = historyViewModel,
+            snackbarHostState = snackbarHostState,
+            scope = scope,
+            onDurationUpdated = { finalDurationMinutes ->
                 if (finalDurationMinutes != currentConfig.durationMinutes) {
                     updateConfig { it.copy(durationMinutes = finalDurationMinutes) }
                 }
-                val finalRecord = previewRecord.copy(
-                    repsSummary = "$finalDurationMinutes min"
-                )
-                val sessionDate = if (timingOption == WorkoutTimingOption.CUSTOM) {
-                    customDate.toString()
-                } else {
-                    LocalDate.now().toString()
-                }
-
-                val session = WorkoutSessionRecord(
-                    id = UUID.randomUUID().toString(),
-                    dayTitle = "Cardio",
-                    dateIso = sessionDate,
-                    durationMinutes = finalDurationMinutes,
-                    exercises = listOf(finalRecord)
-                )
-                historyViewModel.recordSession(session)
-
-                if (syncToCalendar) {
-                    isSyncing = true
-                    scope.launch {
-                        val (date, startHour, startMinute) = when (timingOption) {
-                            WorkoutTimingOption.CUSTOM -> Triple(customDate, customStartTime.hour, customStartTime.minute)
-                            WorkoutTimingOption.FINISHED_NOW -> {
-                                val now = LocalDateTime.now()
-                                val start = now.minusMinutes(finalDurationMinutes.toLong())
-                                Triple(start.toLocalDate(), start.hour, start.minute)
-                            }
-                            WorkoutTimingOption.STARTED_NOW -> {
-                                val now = LocalTime.now()
-                                Triple(LocalDate.now(), now.hour, now.minute)
-                            }
-                        }
-
-                        val description = buildString {
-                            append("${selectedDef.name}: $finalDurationMinutes min")
-                            if (intensityStr.isNotBlank()) {
-                                append(" • $intensityStr")
-                            }
-                            if (currentConfig.notes.isNotBlank()) {
-                                append(" (${currentConfig.notes.trim()})")
-                            }
-                        }
-
-                        val result = calendarManager.createWorkoutEvent(
-                            title = "Cardio (${selectedDef.name})",
-                            date = date,
-                            startHour = startHour,
-                            startMinute = startMinute,
-                            durationMinutes = finalDurationMinutes,
-                            description = description
-                        )
-                        result.fold(
-                            onSuccess = {
-                                snackbarHostState.showSnackbar("Cardio logged to History and Google Calendar!")
-                            },
-                            onFailure = {
-                                snackbarHostState.showSnackbar("Cardio logged to History, but Calendar sync failed: ${it.message}")
-                            }
-                        )
-                        isSyncing = false
-                    }
-                } else {
-                    scope.launch {
-                        snackbarHostState.showSnackbar("Cardio logged to History!")
-                    }
-                }
-            }
+            },
+            onSyncingChange = { isSyncing = it },
+            onDismiss = { showFinishDialog = false }
         )
     }
+}
+
+@Composable
+internal fun CardioFinishDialogHost(
+    selectedDef: ExerciseDefinition,
+    config: CardioActivityConfig,
+    calendarManager: CalendarManager,
+    historyViewModel: HistoryViewModel,
+    snackbarHostState: SnackbarHostState,
+    scope: CoroutineScope,
+    onDurationUpdated: (Int) -> Unit,
+    onSyncingChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val intensityStr = config.formattedIntensity()
+    val previewRecord = CompletedExerciseRecord(
+        exerciseId = selectedDef.id,
+        exerciseName = selectedDef.name,
+        sets = 1,
+        repsSummary = "${config.durationMinutes} min",
+        weight = intensityStr,
+        numericWeight = 0.0,
+        isBodyweight = false,
+        usesStraps = false,
+        comment = config.notes.trim(),
+        isPR = false,
+        isCardio = true
+    )
+
+    UnifiedFinishWorkoutDialog(
+        workoutTitle = "Cardio",
+        completedExercises = listOf(previewRecord),
+        isCalendarConnected = calendarManager.isConnected(),
+        initialDurationMinutes = config.durationMinutes,
+        isCardioSession = true,
+        onDismiss = onDismiss,
+        onConfirm = { _, syncToCalendar, finalDurationMinutes, timingOption, customDate, customStartTime ->
+            onDismiss()
+            onDurationUpdated(finalDurationMinutes)
+            val finalRecord = previewRecord.copy(
+                repsSummary = "$finalDurationMinutes min"
+            )
+            val sessionDate = if (timingOption == WorkoutTimingOption.CUSTOM) {
+                customDate.toString()
+            } else {
+                LocalDate.now().toString()
+            }
+
+            val session = WorkoutSessionRecord(
+                id = UUID.randomUUID().toString(),
+                dayTitle = "Cardio",
+                dateIso = sessionDate,
+                durationMinutes = finalDurationMinutes,
+                exercises = listOf(finalRecord)
+            )
+            historyViewModel.recordSession(session)
+
+            if (syncToCalendar) {
+                onSyncingChange(true)
+                scope.launch {
+                    val (date, startHour, startMinute) = when (timingOption) {
+                        WorkoutTimingOption.CUSTOM -> Triple(customDate, customStartTime.hour, customStartTime.minute)
+                        WorkoutTimingOption.FINISHED_NOW -> {
+                            val now = LocalDateTime.now()
+                            val start = now.minusMinutes(finalDurationMinutes.toLong())
+                            Triple(start.toLocalDate(), start.hour, start.minute)
+                        }
+                        WorkoutTimingOption.STARTED_NOW -> {
+                            val now = LocalTime.now()
+                            Triple(LocalDate.now(), now.hour, now.minute)
+                        }
+                    }
+
+                    val description = buildString {
+                        append("${selectedDef.name}: $finalDurationMinutes min")
+                        if (intensityStr.isNotBlank()) {
+                            append(" • $intensityStr")
+                        }
+                        if (config.notes.isNotBlank()) {
+                            append(" (${config.notes.trim()})")
+                        }
+                    }
+
+                    val result = calendarManager.createWorkoutEvent(
+                        title = "Cardio (${selectedDef.name})",
+                        date = date,
+                        startHour = startHour,
+                        startMinute = startMinute,
+                        durationMinutes = finalDurationMinutes,
+                        description = description
+                    )
+                    result.fold(
+                        onSuccess = {
+                            snackbarHostState.showSnackbar("Cardio logged to History and Google Calendar!")
+                        },
+                        onFailure = {
+                            snackbarHostState.showSnackbar("Cardio logged to History, but Calendar sync failed: ${it.message}")
+                        }
+                    )
+                    onSyncingChange(false)
+                }
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Cardio logged to History!")
+                }
+            }
+        }
+    )
 }

@@ -79,7 +79,9 @@ fun UnifiedFinishWorkoutDialog(
     var uncheckAfter by remember { mutableStateOf(true) }
     var syncToCalendar by remember { mutableStateOf(isCalendarConnected) }
     var durationMinutes by remember(initialDurationMinutes) { mutableIntStateOf(initialDurationMinutes) }
-    var timingOption by remember { mutableStateOf(WorkoutTimingOption.FINISHED_NOW) }
+    var timingOption by remember(isCardioSession) {
+        mutableStateOf(if (isCardioSession) WorkoutTimingOption.STARTED_NOW else WorkoutTimingOption.FINISHED_NOW)
+    }
 
     var customDate by remember { mutableStateOf(LocalDate.now()) }
     var customStartTime by remember(initialDurationMinutes) {

@@ -113,12 +113,18 @@
         { "id": "torso_rotation_machine", "name": "Torso rotation machine", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "110 lbs", "weightUnit": "lbs" },
         { "id": "ab_machine", "name": "Ab machine", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "110 lbs", "weightUnit": "lbs" },
         { "id": "dragon_flags", "name": "Dragon Flags", "defaultSets": 2, "defaultReps": "10", "defaultLoad": "Bodyweight", "isBodyweight": true },
-        { "id": "running", "name": "Running", "defaultSets": 1, "defaultReps": "20min", "defaultLoad": "" },
-        { "id": "cycling", "name": "Cycling", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "" },
-        { "id": "incline_walking", "name": "Incline walking", "defaultSets": 1, "defaultReps": "45min", "defaultLoad": "" },
-        { "id": "walking", "name": "Walking", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "" },
-        { "id": "stair_master_", "name": "Stair master", "defaultSets": 1, "defaultReps": "10 mins", "defaultLoad": "", "defaultNotes": "Level 5" },
         { "id": "foam_rolling", "name": "Foam rolling", "defaultSets": 1, "defaultReps": "5", "defaultLoad": "min" }
+      ]
+    },
+    {
+      "id": "cardio",
+      "name": "Cardio",
+      "exercises": [
+        { "id": "running", "name": "Running", "defaultSets": 1, "defaultReps": "20min", "defaultLoad": "", "isTimed": true, "defaultTime": "20min" },
+        { "id": "cycling", "name": "Cycling", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "", "isTimed": true, "defaultTime": "30min" },
+        { "id": "incline_walking", "name": "Incline walking", "defaultSets": 1, "defaultReps": "45min", "defaultLoad": "", "isTimed": true, "defaultTime": "45min" },
+        { "id": "walking", "name": "Walking", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "", "isTimed": true, "defaultTime": "30min" },
+        { "id": "stair_master_", "name": "Stair master", "defaultSets": 1, "defaultReps": "10 mins", "defaultLoad": "", "isTimed": true, "defaultTime": "10 mins", "defaultNotes": "Level 5" }
       ]
     }
   ],

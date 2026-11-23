@@ -1,5 +1,6 @@
 package com.mateoviscarra.doitall.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
@@ -7,6 +8,8 @@ import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +33,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.FitnessCenter
@@ -125,7 +130,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun WorkoutDetailScreen(
     workoutPlan: WorkoutPlan,
@@ -151,6 +156,56 @@ fun WorkoutDetailScreen(
         )
         return
     }
+
+    val cardioDay = remember(workoutPlan) {
+        workoutPlan.schedule.firstOrNull { it.day.trim().equals("Cardio", ignoreCase = true) }
+    }
+    val hasAttachedCardio = remember(workoutDay) {
+        workoutDay.muscleGroups.any { it.equals("cardio", ignoreCase = true) } ||
+            workoutDay.day.contains("Recovery", ignoreCase = true)
+    }
+    var showFullCardioScreen by remember { mutableStateOf(false) }
+
+    if (showFullCardioScreen && cardioDay != null) {
+        BackHandler { showFullCardioScreen = false }
+        CardioWorkoutScreen(
+            workoutPlan = workoutPlan,
+            workoutDay = cardioDay,
+            onBack = { showFullCardioScreen = false },
+            onEditRoutine = {
+                showFullCardioScreen = false
+                onEditRoutine?.invoke()
+            },
+            calendarManager = calendarManager,
+            planViewModel = planViewModel,
+            historyViewModel = historyViewModel
+        )
+        return
+    }
+
+    val context = LocalContext.current
+    val cardioStore = remember { CardioPreferencesStore(context.applicationContext) }
+    val cardioActivities = remember(cardioDay, workoutPlan) {
+        cardioDay?.slots
+            ?.flatMap { it.exerciseIds }
+            ?.distinct()
+            ?.mapNotNull { id -> workoutPlan.catalog[id] }
+            .orEmpty()
+    }
+    var selectedCardioId by remember(cardioActivities) {
+        val defaultId = cardioActivities.firstOrNull()?.id ?: ""
+        val saved = cardioStore.getSelectedActivityId(defaultId)
+        val validId = if (cardioActivities.any { it.id == saved }) saved else defaultId
+        mutableStateOf(validId)
+    }
+    val selectedCardioDef = cardioActivities.find { it.id == selectedCardioId } ?: cardioActivities.firstOrNull()
+    var currentCardioConfig by remember(selectedCardioDef) {
+        mutableStateOf(
+            selectedCardioDef?.let { cardioStore.getConfig(it) }
+                ?: CardioActivityConfig(exerciseId = selectedCardioId)
+        )
+    }
+    var showCardioFinishDialog by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -378,13 +433,32 @@ fun WorkoutDetailScreen(
                     }
                 }
 
-                if (workoutDay.slots.isEmpty()) {
+                if (hasAttachedCardio && cardioActivities.isNotEmpty() && selectedCardioDef != null) {
                     item {
-                        Text(
-                            text = "No exercises listed for this day.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        EmbeddedCardioCard(
+                            cardioActivities = cardioActivities,
+                            selectedCardioDef = selectedCardioDef,
+                            currentConfig = currentCardioConfig,
+                            onSelectActivity = { def ->
+                                selectedCardioId = def.id
+                                cardioStore.setSelectedActivityId(def.id)
+                                currentCardioConfig = cardioStore.getConfig(def)
+                            },
+                            onOpenFullCardio = { showFullCardioScreen = true },
+                            onLogCardioClick = { showCardioFinishDialog = true }
                         )
+                    }
+                }
+
+                if (workoutDay.slots.isEmpty()) {
+                    if (!hasAttachedCardio) {
+                        item {
+                            Text(
+                                text = "No exercises listed for this day.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 } else {
                     items(slotGroups) { group ->
@@ -906,6 +980,168 @@ fun WorkoutDetailScreen(
                 activeTemporaryPickerSlotIndex = null
             }
         )
+    }
+
+    if (showCardioFinishDialog && selectedCardioDef != null) {
+        CardioFinishDialogHost(
+            selectedDef = selectedCardioDef,
+            config = currentCardioConfig,
+            calendarManager = calendarManager,
+            historyViewModel = historyViewModel,
+            snackbarHostState = snackbarHostState,
+            scope = scope,
+            onDurationUpdated = { finalDurationMinutes ->
+                if (finalDurationMinutes != currentCardioConfig.durationMinutes) {
+                    val updated = currentCardioConfig.copy(durationMinutes = finalDurationMinutes)
+                    currentCardioConfig = updated
+                    cardioStore.saveConfig(updated)
+                }
+            },
+            onSyncingChange = { isSyncing = it },
+            onDismiss = { showCardioFinishDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EmbeddedCardioCard(
+    cardioActivities: List<ExerciseDefinition>,
+    selectedCardioDef: ExerciseDefinition,
+    currentConfig: CardioActivityConfig,
+    onSelectActivity: (ExerciseDefinition) -> Unit,
+    onOpenFullCardio: () -> Unit,
+    onLogCardioClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenFullCardio),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.DirectionsRun,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Cardio",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Separate session • Log when starting",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                TextButton(
+                    onClick = onOpenFullCardio,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text("Adjust")
+                }
+            }
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                cardioActivities.forEach { def ->
+                    FilterChip(
+                        selected = def.id == selectedCardioDef.id,
+                        onClick = { onSelectActivity(def) },
+                        label = {
+                            Text(
+                                text = def.name,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    )
+                }
+            }
+
+            val summaryText = listOfNotNull(
+                currentConfig.shortSummary().takeIf { it.isNotBlank() },
+                currentConfig.notes.trim().takeIf { it.isNotBlank() }
+            ).joinToString(" • ")
+
+            if (summaryText.isNotBlank()) {
+                Text(
+                    text = summaryText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = onLogCardioClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Log ${selectedCardioDef.name} (${currentConfig.durationMinutes} min)",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onOpenFullCardio,
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Edit / Options",
+                        maxLines = 1
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -12,6 +12,19 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "WorkoutPlanRepository"
 
+val KNOWN_CARDIO_IDS = setOf(
+    "incline_walking",
+    "stair_master_",
+    "stair_master",
+    "running",
+    "cycling",
+    "walking",
+    "elliptical",
+    "rowing",
+    "stationary_bike",
+    "treadmill"
+)
+
 class WorkoutPlanRepository(
     private val context: Context,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
@@ -51,7 +64,9 @@ class WorkoutPlanRepository(
             }
 
             // Organize Abs routine into 4 movement slots with alternatives if it still has flat unorganized slots
-            val finalPlan = migrateAbsAndPlankIfNeeded(withIsoPlan)
+            val absMigratedPlan = migrateAbsAndPlankIfNeeded(withIsoPlan)
+            // Separate cardio into its own category and strip cardio exercise slots out of recovery/non-cardio days
+            val finalPlan = migrateCardioAndRecoveryIfNeeded(absMigratedPlan)
 
             if (finalPlan != rawPlan) {
                 scope.launch {
@@ -124,6 +139,121 @@ class WorkoutPlanRepository(
         }
 
         return plan.copy(categories = updatedCategories, days = updatedDays)
+    }
+
+    private fun migrateCardioAndRecoveryIfNeeded(plan: NewWorkoutPlan): NewWorkoutPlan {
+        val cardioDay = plan.days.find { it.day.trim().equals("Cardio", ignoreCase = true) }
+        val existingCardioCategory = plan.categories.find {
+            it.id.equals("cardio", ignoreCase = true) || it.name.equals("Cardio", ignoreCase = true)
+        }
+
+        val cardioIds = buildSet {
+            addAll(KNOWN_CARDIO_IDS)
+            cardioDay?.exercises?.forEach { ex ->
+                add(ex.exerciseId)
+                addAll(ex.alternatives)
+            }
+            existingCardioCategory?.exercises?.forEach { ex ->
+                add(ex.id)
+            }
+        }
+
+        // Gather all cardio exercises from any category, clean up bodyweight/min fields, and move to "cardio" category
+        val collectedCardioExercises = linkedMapOf<String, CategoryExercise>()
+        existingCardioCategory?.exercises?.forEach { ex ->
+            collectedCardioExercises[ex.id] = ex.copy(
+                isBodyweight = false,
+                defaultLoad = "",
+                categories = listOf("cardio")
+            )
+        }
+        plan.categories.forEach { cat ->
+            cat.exercises.forEach { ex ->
+                if (ex.id in cardioIds) {
+                    collectedCardioExercises.putIfAbsent(
+                        ex.id,
+                        ex.copy(
+                            isBodyweight = false,
+                            defaultLoad = "",
+                            categories = listOf("cardio")
+                        )
+                    )
+                }
+            }
+        }
+
+        val cleanedCategories = plan.categories.mapNotNull { cat ->
+            if (cat.id.equals("cardio", ignoreCase = true) || cat.name.equals("Cardio", ignoreCase = true)) {
+                null // Replaced below with consolidated Cardio category
+            } else {
+                cat.copy(exercises = cat.exercises.filter { it.id !in cardioIds })
+            }
+        } + Category(
+            id = "cardio",
+            name = "Cardio",
+            exercises = collectedCardioExercises.values.toList()
+        )
+
+        // Ensure non-Cardio days don't contain cardio exercise slots (they use the embedded Cardio widget instead)
+        var hasStandaloneCardioDay = false
+        val cleanedDays = plan.days.map { day ->
+            if (day.day.trim().equals("Cardio", ignoreCase = true)) {
+                hasStandaloneCardioDay = true
+                val existingIds = day.exercises.map { it.exerciseId }.toSet()
+                val extraCardio = collectedCardioExercises.keys
+                    .filter { it !in existingIds }
+                    .map { DayExercise(exerciseId = it) }
+                if (extraCardio.isNotEmpty()) {
+                    day.copy(exercises = day.exercises + extraCardio)
+                } else {
+                    day
+                }
+            } else {
+                var hadCardioSlot = false
+                val filteredExercises = day.exercises.mapNotNull { ex ->
+                    val allIds = listOf(ex.exerciseId) + ex.alternatives
+                    if (allIds.any { it in cardioIds }) {
+                        hadCardioSlot = true
+                    }
+                    val remaining = allIds.filter { it !in cardioIds }
+                    if (remaining.isEmpty()) {
+                        null
+                    } else {
+                        ex.copy(
+                            exerciseId = remaining.first(),
+                            alternatives = remaining.drop(1)
+                        )
+                    }
+                }
+                val isRecovery = day.day.contains("Recovery", ignoreCase = true)
+                val updatedMuscles = if ((hadCardioSlot || isRecovery) &&
+                    day.muscleGroups.none { it.equals("cardio", ignoreCase = true) }
+                ) {
+                    day.muscleGroups + "cardio"
+                } else {
+                    day.muscleGroups
+                }
+                if (filteredExercises != day.exercises || updatedMuscles != day.muscleGroups) {
+                    day.copy(muscleGroups = updatedMuscles, exercises = filteredExercises)
+                } else {
+                    day
+                }
+            }
+        }
+
+        val finalDays = if (!hasStandaloneCardioDay) {
+            cleanedDays + NewWorkoutDay(
+                day = "Cardio",
+                muscleGroups = emptyList(),
+                isRestDay = false,
+                notes = emptyList(),
+                exercises = collectedCardioExercises.keys.map { DayExercise(exerciseId = it) }
+            )
+        } else {
+            cleanedDays
+        }
+
+        return plan.copy(categories = cleanedCategories, days = finalDays)
     }
 
     private fun updateAndPersist(newPlan: NewWorkoutPlan) {

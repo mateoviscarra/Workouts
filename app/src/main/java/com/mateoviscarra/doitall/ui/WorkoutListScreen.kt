@@ -596,7 +596,14 @@ private fun WorkoutButton(
                 }
             }
 
-            val countText = if (day.slots.isNotEmpty()) "${day.slots.size} exercises" else "Empty"
+            val hasCardio = day.muscleGroups.any { it.equals("cardio", ignoreCase = true) } ||
+                day.day.contains("Recovery", ignoreCase = true)
+            val countText = when {
+                day.slots.isNotEmpty() && hasCardio -> "${day.slots.size} exercises + Cardio"
+                day.slots.isNotEmpty() -> "${day.slots.size} exercises"
+                hasCardio -> "Cardio"
+                else -> "Empty"
+            }
             Text(
                 text = countText,
                 style = MaterialTheme.typography.labelSmall,
