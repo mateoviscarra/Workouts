@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import com.mateoviscarra.doitall.data.persist.WeightUnit
+import com.mateoviscarra.doitall.notifications.PillReminderScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +13,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 private const val TAG = "NutritionRepository"
@@ -23,6 +27,8 @@ private const val KEY_NUTRITION_GOALS = "nutrition_goals_json"
 private const val KEY_USER_PROFILE = "user_profile_json"
 private const val KEY_AI_PROMPT = "custom_ai_prompt"
 private const val KEY_HAND_SCALE_REF = "hand_scale_ref_json"
+private const val KEY_SUPPLEMENTS = "supplements_json"
+private const val KEY_PILL_LOGS = "pill_logs_json"
 private const val KEY_GEMINI_API_KEY = "gemini_api_key"
 
 class NutritionRepository(
@@ -45,6 +51,12 @@ class NutritionRepository(
 
     private val _weightLogs = MutableStateFlow<List<WeightLogEntry>>(emptyList())
     val weightLogs: StateFlow<List<WeightLogEntry>> = _weightLogs.asStateFlow()
+
+    private val _supplements = MutableStateFlow<List<SupplementPill>>(emptyList())
+    val supplements: StateFlow<List<SupplementPill>> = _supplements.asStateFlow()
+
+    private val _pillLogs = MutableStateFlow<List<PillLogEntry>>(emptyList())
+    val pillLogs: StateFlow<List<PillLogEntry>> = _pillLogs.asStateFlow()
 
     private val _aiPrompt = MutableStateFlow(DEFAULT_NUTRITION_AI_PROMPT)
     val aiPrompt: StateFlow<String> = _aiPrompt.asStateFlow()
@@ -75,6 +87,12 @@ class NutritionRepository(
         }
         prefs.getString(KEY_WEIGHT_LOGS, null)?.takeIf { it.isNotBlank() }?.let {
             runCatching { parseWeightLogs(it) }.getOrNull()?.let { _weightLogs.value = it }
+        }
+        prefs.getString(KEY_SUPPLEMENTS, null)?.takeIf { it.isNotBlank() }?.let {
+            runCatching { parseSupplements(it) }.getOrNull()?.let { _supplements.value = it }
+        }
+        prefs.getString(KEY_PILL_LOGS, null)?.takeIf { it.isNotBlank() }?.let {
+            runCatching { parsePillLogs(it) }.getOrNull()?.let { _pillLogs.value = it }
         }
         prefs.getString(KEY_AI_PROMPT, null)?.takeIf { it.isNotBlank() && it.contains("mealName") }?.let {
             _aiPrompt.value = it
@@ -200,6 +218,68 @@ class NutritionRepository(
                 _weightLogs.value = parseWeightLogs(weightsJson)
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading weight logs", e)
+            }
+        }
+
+        // Supplements & Pill Logs
+        val supplementsJson = prefs.getString(KEY_SUPPLEMENTS, null)
+        if (!supplementsJson.isNullOrBlank()) {
+            try {
+                _supplements.value = parseSupplements(supplementsJson)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading supplements", e)
+            }
+        } else {
+            val todayIso = LocalDate.now().toString()
+            val seeded = listOf(
+                SupplementPill(
+                    id = "pill_creatine",
+                    name = "Creatine",
+                    dosageDescription = "4g",
+                    calories = 0,
+                    micronutrientsSummary = "4 g Creatine Monohydrate",
+                    notes = "Take in the morning while working out",
+                    scheduledDaysOfWeek = setOf(1, 2, 3, 4, 5, 6, 7),
+                    reminderTimes = listOf("08:00"),
+                    notificationsEnabled = false,
+                    createdAtDateIso = todayIso
+                ),
+                SupplementPill(
+                    id = "pill_fish_oil",
+                    name = "Fish Oil",
+                    dosageDescription = "2400mg",
+                    calories = 25,
+                    fatGrams = 2.5f,
+                    micronutrientsSummary = "Omega-3 EPA & DHA (2400 mg)",
+                    notes = "Take right after lunch",
+                    scheduledDaysOfWeek = setOf(1, 2, 3, 4, 5, 6, 7),
+                    reminderTimes = listOf("13:30"),
+                    notificationsEnabled = false,
+                    createdAtDateIso = todayIso
+                ),
+                SupplementPill(
+                    id = "pill_magnesium_glycinate",
+                    name = "Magnesium Glycinate",
+                    dosageDescription = "240mg",
+                    calories = 0,
+                    micronutrientsSummary = "240 mg elemental Magnesium",
+                    notes = "Take 1 hour before bed (sleep & recovery)",
+                    scheduledDaysOfWeek = setOf(1, 2, 3, 4, 5, 6, 7),
+                    reminderTimes = listOf("21:00"),
+                    notificationsEnabled = false,
+                    createdAtDateIso = todayIso
+                )
+            )
+            _supplements.value = seeded
+            saveSupplementsToDisk(seeded)
+        }
+
+        val pillLogsJson = prefs.getString(KEY_PILL_LOGS, null)
+        if (!pillLogsJson.isNullOrBlank()) {
+            try {
+                _pillLogs.value = parsePillLogs(pillLogsJson)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading pill logs", e)
             }
         }
 
@@ -639,6 +719,8 @@ class NutritionRepository(
             })
         }
         root.put("weightLogs", weightsArr)
+        root.put("supplements", supplementsToJsonArray(_supplements.value))
+        root.put("pillLogs", pillLogsToJsonArray(_pillLogs.value))
         root.put("handScaleReference", handScaleRefToJson(_handScaleRef.value))
 
         return root
@@ -682,6 +764,17 @@ class NutritionRepository(
             val weights = parseWeightLogs(obj.getJSONArray("weightLogs").toString())
             _weightLogs.value = weights
             saveWeightLogsToDisk(weights)
+        }
+        if (obj.has("supplements")) {
+            val pills = parseSupplements(obj.getJSONArray("supplements").toString())
+            _supplements.value = pills
+            saveSupplementsToDisk(pills)
+            PillReminderScheduler.scheduleAll(context, pills)
+        }
+        if (obj.has("pillLogs")) {
+            val pLogs = parsePillLogs(obj.getJSONArray("pillLogs").toString())
+            _pillLogs.value = pLogs
+            savePillLogsToDisk(pLogs)
         }
         obj.optJSONObject("handScaleReference")?.let { hObj ->
             updateHandScaleReference(parseHandScaleRef(hObj))
@@ -760,5 +853,195 @@ class NutritionRepository(
             )
         }
         return list.sortedByDescending { it.dateIso }
+    }
+
+    // --- Pills & Supplements ---
+    fun saveSupplement(pill: SupplementPill) {
+        val current = _supplements.value.toMutableList()
+        val idx = current.indexOfFirst { it.id == pill.id }
+        if (idx >= 0) {
+            current[idx] = pill
+        } else {
+            current.add(pill)
+        }
+        _supplements.value = current
+        saveSupplementsToDisk(current)
+        PillReminderScheduler.scheduleAll(context, current)
+    }
+
+    fun deleteSupplement(pillId: String) {
+        val updated = _supplements.value.filter { it.id != pillId }
+        _supplements.value = updated
+        saveSupplementsToDisk(updated)
+        PillReminderScheduler.scheduleAll(context, updated)
+    }
+
+    fun togglePillTaken(pill: SupplementPill, dateIso: String) {
+        val current = _pillLogs.value.toMutableList()
+        val existingIdx = current.indexOfFirst { it.pillId == pill.id && it.dateIso == dateIso }
+        if (existingIdx >= 0) {
+            current.removeAt(existingIdx)
+        } else {
+            val nowTime = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
+            current.add(
+                0,
+                PillLogEntry(
+                    pillId = pill.id,
+                    dateIso = dateIso,
+                    takenTime = nowTime,
+                    pillName = pill.name,
+                    dosageDescription = pill.dosageDescription,
+                    calories = pill.calories,
+                    proteinGrams = pill.proteinGrams,
+                    carbsGrams = pill.carbsGrams,
+                    fatGrams = pill.fatGrams,
+                    micronutrientsSummary = pill.micronutrientsSummary
+                )
+            )
+        }
+        _pillLogs.value = current
+        savePillLogsToDisk(current)
+    }
+
+    fun markPillTakenById(pillId: String, dateIso: String) {
+        val pill = _supplements.value.firstOrNull { it.id == pillId } ?: return
+        val current = _pillLogs.value.toMutableList()
+        if (current.any { it.pillId == pillId && it.dateIso == dateIso }) return
+        val nowTime = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
+        current.add(
+            0,
+            PillLogEntry(
+                pillId = pill.id,
+                dateIso = dateIso,
+                takenTime = nowTime,
+                pillName = pill.name,
+                dosageDescription = pill.dosageDescription,
+                calories = pill.calories,
+                proteinGrams = pill.proteinGrams,
+                carbsGrams = pill.carbsGrams,
+                fatGrams = pill.fatGrams,
+                micronutrientsSummary = pill.micronutrientsSummary
+            )
+        )
+        _pillLogs.value = current
+        savePillLogsToDisk(current)
+    }
+
+    private fun saveSupplementsToDisk(list: List<SupplementPill>) {
+        prefs.edit().putString(KEY_SUPPLEMENTS, supplementsToJsonArray(list).toString()).apply()
+        DriveSyncManager.scheduleAutoSync(context, "Supplements updated")
+    }
+
+    private fun savePillLogsToDisk(list: List<PillLogEntry>) {
+        prefs.edit().putString(KEY_PILL_LOGS, pillLogsToJsonArray(list).toString()).apply()
+        DriveSyncManager.scheduleAutoSync(context, "Pill log updated")
+    }
+
+    private fun supplementsToJsonArray(list: List<SupplementPill>): JSONArray {
+        val arr = JSONArray()
+        list.forEach { p ->
+            arr.put(JSONObject().apply {
+                put("id", p.id)
+                put("name", p.name)
+                put("dosageDescription", p.dosageDescription)
+                put("calories", p.calories)
+                put("proteinGrams", p.proteinGrams.toDouble())
+                put("carbsGrams", p.carbsGrams.toDouble())
+                put("fatGrams", p.fatGrams.toDouble())
+                put("micronutrientsSummary", p.micronutrientsSummary)
+                put("notes", p.notes)
+                put("scheduledDaysOfWeek", JSONArray(p.scheduledDaysOfWeek.sorted()))
+                put("reminderTimes", JSONArray(p.reminderTimes))
+                put("notificationsEnabled", p.notificationsEnabled)
+                put("createdAtDateIso", p.createdAtDateIso)
+            })
+        }
+        return arr
+    }
+
+    private fun parseSupplements(jsonStr: String): List<SupplementPill> {
+        val arr = JSONArray(jsonStr)
+        val list = mutableListOf<SupplementPill>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val daysArr = obj.optJSONArray("scheduledDaysOfWeek")
+            val days = if (daysArr != null) {
+                (0 until daysArr.length()).mapNotNull { idx ->
+                    daysArr.optInt(idx).takeIf { it in 1..7 }
+                }.toSet().ifEmpty { setOf(1, 2, 3, 4, 5, 6, 7) }
+            } else {
+                setOf(1, 2, 3, 4, 5, 6, 7)
+            }
+            val timesArr = obj.optJSONArray("reminderTimes")
+            val times = if (timesArr != null) {
+                (0 until timesArr.length()).mapNotNull { idx ->
+                    timesArr.optString(idx).takeIf { it.isNotBlank() }
+                }
+            } else {
+                listOf("09:00")
+            }
+            list.add(
+                SupplementPill(
+                    id = obj.optString("id", UUID.randomUUID().toString()),
+                    name = obj.getString("name"),
+                    dosageDescription = obj.optString("dosageDescription", ""),
+                    calories = obj.optInt("calories", 0),
+                    proteinGrams = obj.optDouble("proteinGrams", 0.0).toFloat(),
+                    carbsGrams = obj.optDouble("carbsGrams", 0.0).toFloat(),
+                    fatGrams = obj.optDouble("fatGrams", 0.0).toFloat(),
+                    micronutrientsSummary = obj.optString("micronutrientsSummary", ""),
+                    notes = obj.optString("notes", ""),
+                    scheduledDaysOfWeek = days,
+                    reminderTimes = times,
+                    notificationsEnabled = obj.optBoolean("notificationsEnabled", false),
+                    createdAtDateIso = obj.optString("createdAtDateIso", LocalDate.now().toString())
+                )
+            )
+        }
+        return list
+    }
+
+    private fun pillLogsToJsonArray(list: List<PillLogEntry>): JSONArray {
+        val arr = JSONArray()
+        list.forEach { e ->
+            arr.put(JSONObject().apply {
+                put("id", e.id)
+                put("pillId", e.pillId)
+                put("dateIso", e.dateIso)
+                put("takenTime", e.takenTime)
+                put("pillName", e.pillName)
+                put("dosageDescription", e.dosageDescription)
+                put("calories", e.calories)
+                put("proteinGrams", e.proteinGrams.toDouble())
+                put("carbsGrams", e.carbsGrams.toDouble())
+                put("fatGrams", e.fatGrams.toDouble())
+                put("micronutrientsSummary", e.micronutrientsSummary)
+            })
+        }
+        return arr
+    }
+
+    private fun parsePillLogs(jsonStr: String): List<PillLogEntry> {
+        val arr = JSONArray(jsonStr)
+        val list = mutableListOf<PillLogEntry>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            list.add(
+                PillLogEntry(
+                    id = obj.optString("id", UUID.randomUUID().toString()),
+                    pillId = obj.getString("pillId"),
+                    dateIso = obj.getString("dateIso"),
+                    takenTime = obj.optString("takenTime", ""),
+                    pillName = obj.optString("pillName", ""),
+                    dosageDescription = obj.optString("dosageDescription", ""),
+                    calories = obj.optInt("calories", 0),
+                    proteinGrams = obj.optDouble("proteinGrams", 0.0).toFloat(),
+                    carbsGrams = obj.optDouble("carbsGrams", 0.0).toFloat(),
+                    fatGrams = obj.optDouble("fatGrams", 0.0).toFloat(),
+                    micronutrientsSummary = obj.optString("micronutrientsSummary", "")
+                )
+            )
+        }
+        return list
     }
 }

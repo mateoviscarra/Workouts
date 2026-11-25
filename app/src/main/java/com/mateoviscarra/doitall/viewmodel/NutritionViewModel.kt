@@ -10,7 +10,9 @@ import com.mateoviscarra.doitall.data.HandScaleReference
 import com.mateoviscarra.doitall.data.MealSlot
 import com.mateoviscarra.doitall.data.NutritionGoals
 import com.mateoviscarra.doitall.data.NutritionRepository
+import com.mateoviscarra.doitall.data.PillLogEntry
 import com.mateoviscarra.doitall.data.SavedMeal
+import com.mateoviscarra.doitall.data.SupplementPill
 import com.mateoviscarra.doitall.data.WeightLogEntry
 import com.mateoviscarra.doitall.data.persist.WeightUnit
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +39,8 @@ class NutritionViewModel @JvmOverloads constructor(
     val savedMeals: StateFlow<List<SavedMeal>> = repository.savedMeals
     val allFoodLogs: StateFlow<List<FoodLogEntry>> = repository.foodLogs
     val allWeightLogs: StateFlow<List<WeightLogEntry>> = repository.weightLogs
+    val supplements: StateFlow<List<SupplementPill>> = repository.supplements
+    val allPillLogs: StateFlow<List<PillLogEntry>> = repository.pillLogs
     val aiPrompt: StateFlow<String> = repository.aiPrompt
     val handScaleRef: StateFlow<HandScaleReference> = repository.handScaleRef
     val geminiApiKey: StateFlow<String> = repository.geminiApiKey
@@ -88,23 +92,32 @@ class NutritionViewModel @JvmOverloads constructor(
         logs.filter { it.dateIso == dateIso }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Daily totals for currently selected date
-    val currentDayTotals: StateFlow<DayNutritionTotals> = combine(
-        currentDayLogs,
+    val currentDayPillLogs: StateFlow<List<PillLogEntry>> = combine(
+        allPillLogs,
         selectedDate
     ) { logs, dateIso ->
+        logs.filter { it.dateIso == dateIso }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Daily totals for currently selected date (food + taken pills with calories/macros)
+    val currentDayTotals: StateFlow<DayNutritionTotals> = combine(
+        currentDayLogs,
+        currentDayPillLogs,
+        selectedDate
+    ) { logs, pLogs, dateIso ->
         DayNutritionTotals(
             dateIso = dateIso,
-            totalCalories = logs.sumOf { it.totalCalories },
-            totalProtein = logs.sumOf { it.totalProtein.toDouble() }.toFloat(),
-            totalCarbs = logs.sumOf { it.totalCarbs.toDouble() }.toFloat(),
-            totalFat = logs.sumOf { it.totalFat.toDouble() }.toFloat(),
-            entries = logs
+            totalCalories = logs.sumOf { it.totalCalories } + pLogs.sumOf { it.calories },
+            totalProtein = (logs.sumOf { it.totalProtein.toDouble() } + pLogs.sumOf { it.proteinGrams.toDouble() }).toFloat(),
+            totalCarbs = (logs.sumOf { it.totalCarbs.toDouble() } + pLogs.sumOf { it.carbsGrams.toDouble() }).toFloat(),
+            totalFat = (logs.sumOf { it.totalFat.toDouble() } + pLogs.sumOf { it.fatGrams.toDouble() }).toFloat(),
+            entries = logs,
+            pillLogs = pLogs
         )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        DayNutritionTotals(LocalDate.now().toString(), 0, 0f, 0f, 0f, emptyList())
+        DayNutritionTotals(LocalDate.now().toString(), 0, 0f, 0f, 0f, emptyList(), emptyList())
     )
 
     // --- Date Navigation ---
@@ -210,6 +223,43 @@ class NutritionViewModel @JvmOverloads constructor(
 
     fun deleteWeight(id: String) {
         repository.deleteWeightLog(id)
+    }
+
+    // --- Pills & Supplements ---
+    fun saveSupplement(pill: SupplementPill) {
+        repository.saveSupplement(pill)
+    }
+
+    fun deleteSupplement(pillId: String) {
+        repository.deleteSupplement(pillId)
+    }
+
+    fun togglePillTaken(pill: SupplementPill, dateIso: String = _selectedDate.value) {
+        repository.togglePillTaken(pill, dateIso)
+    }
+
+    fun getMissedDatesForPill(pill: SupplementPill, lookbackDays: Int = 14): List<LocalDate> {
+        val today = LocalDate.now()
+        val createdDate = runCatching { LocalDate.parse(pill.createdAtDateIso) }.getOrDefault(today)
+        val earliest = today.minusDays(lookbackDays.toLong())
+        val startDate = if (createdDate.isAfter(earliest)) createdDate else earliest
+        if (!startDate.isBefore(today)) return emptyList()
+
+        val takenDates = allPillLogs.value
+            .asSequence()
+            .filter { it.pillId == pill.id }
+            .map { it.dateIso }
+            .toSet()
+
+        val missed = mutableListOf<LocalDate>()
+        var d = startDate
+        while (d.isBefore(today)) {
+            if (pill.isScheduledForDate(d) && d.toString() !in takenDates) {
+                missed.add(d)
+            }
+            d = d.plusDays(1)
+        }
+        return missed.sortedDescending()
     }
 
     // --- Goals & Settings ---

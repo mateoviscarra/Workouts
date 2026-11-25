@@ -135,7 +135,49 @@ data class DayNutritionTotals(
     val totalProtein: Float,
     val totalCarbs: Float,
     val totalFat: Float,
-    val entries: List<FoodLogEntry>
+    val entries: List<FoodLogEntry>,
+    val pillLogs: List<PillLogEntry> = emptyList()
+)
+
+/**
+ * Scheduled supplement / pill with optional macros, micronutrient overview, and reminder schedule.
+ */
+data class SupplementPill(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val dosageDescription: String = "",
+    val calories: Int = 0,
+    val proteinGrams: Float = 0f,
+    val carbsGrams: Float = 0f,
+    val fatGrams: Float = 0f,
+    val micronutrientsSummary: String = "",
+    val notes: String = "",
+    val scheduledDaysOfWeek: Set<Int> = setOf(1, 2, 3, 4, 5, 6, 7), // 1 = Mon .. 7 = Sun
+    val reminderTimes: List<String> = listOf("09:00"),               // "HH:mm"
+    val notificationsEnabled: Boolean = false,
+    val createdAtDateIso: String = LocalDate.now().toString()
+) {
+    fun isScheduledForDate(date: LocalDate): Boolean {
+        val days = if (scheduledDaysOfWeek.isEmpty()) setOf(1, 2, 3, 4, 5, 6, 7) else scheduledDaysOfWeek
+        return date.dayOfWeek.value in days
+    }
+}
+
+/**
+ * Daily record of a supplement pill taken on a given date.
+ */
+data class PillLogEntry(
+    val id: String = UUID.randomUUID().toString(),
+    val pillId: String,
+    val dateIso: String,
+    val takenTime: String = "",
+    val pillName: String,
+    val dosageDescription: String = "",
+    val calories: Int = 0,
+    val proteinGrams: Float = 0f,
+    val carbsGrams: Float = 0f,
+    val fatGrams: Float = 0f,
+    val micronutrientsSummary: String = ""
 )
 
 const val DEFAULT_NUTRITION_AI_PROMPT = """You are an expert nutritionist and visual food analyst based in Bolivia.

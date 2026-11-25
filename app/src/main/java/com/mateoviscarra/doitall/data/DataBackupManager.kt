@@ -299,6 +299,8 @@ class DataBackupManager(private val context: Context) {
         val foodLogs = nutritionRepo.foodLogs.value
         val savedMeals = nutritionRepo.savedMeals.value
         val weightLogs = nutritionRepo.weightLogs.value.sortedByDescending { it.dateIso }
+        val supplements = nutritionRepo.supplements.value
+        val pillLogs = nutritionRepo.pillLogs.value
         val syncedAt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.US))
 
         val sb = StringBuilder()
@@ -472,6 +474,36 @@ class DataBackupManager(private val context: Context) {
                 val pin = if (meal.isPinnedStaple) "[Staple]" else "[Saved]"
                 val serv = meal.servingDescription.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
                 sb.appendLine("- $pin ${meal.name}$serv: ${meal.totalCalories} kcal (P ${meal.totalProtein.toInt()}g, C ${meal.totalCarbs.toInt()}g, F ${meal.totalFat.toInt()}g)")
+            }
+            sb.appendLine()
+        }
+
+        if (supplements.isNotEmpty()) {
+            val today = LocalDate.now()
+            sb.appendLine("### Pills & Supplements Protocol (${supplements.size})")
+            supplements.forEach { pill ->
+                val dose = pill.dosageDescription.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+                val macros = if (pill.calories > 0 || pill.fatGrams > 0f) {
+                    " — ${pill.calories} kcal (F ${pill.fatGrams}g)"
+                } else ""
+                val micro = pill.micronutrientsSummary.takeIf { it.isNotBlank() }?.let { " | Actives: $it" } ?: ""
+                val times = pill.reminderTimes.joinToString(", ").ifBlank { "No reminder time" }
+                val takenDates = pillLogs.asSequence().filter { it.pillId == pill.id }.map { it.dateIso }.toSet()
+                val created = runCatching { LocalDate.parse(pill.createdAtDateIso) }.getOrDefault(today)
+                val earliest = today.minusDays(14)
+                val start = if (created.isAfter(earliest)) created else earliest
+                var scheduledCount = 0
+                var missedCount = 0
+                var d = start
+                while (d.isBefore(today)) {
+                    if (pill.isScheduledForDate(d)) {
+                        scheduledCount++
+                        if (d.toString() !in takenDates) missedCount++
+                    }
+                    d = d.plusDays(1)
+                }
+                val adherenceText = if (scheduledCount > 0) " | Last 14d: ${scheduledCount - missedCount}/$scheduledCount taken ($missedCount missed)" else ""
+                sb.appendLine("- ${pill.name}$dose @ $times$macros$micro$adherenceText")
             }
             sb.appendLine()
         }

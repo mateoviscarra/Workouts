@@ -39,6 +39,17 @@ data class FoodScanResult(
     val notes: String = ""
 )
 
+data class SupplementScanResult(
+    val name: String,
+    val dosageDescription: String,
+    val calories: Int,
+    val proteinGrams: Float,
+    val carbsGrams: Float,
+    val fatGrams: Float,
+    val micronutrientsSummary: String,
+    val notes: String = ""
+)
+
 class GeminiVisionClient(private val context: Context) {
 
     suspend fun analyzeFoodImage(
@@ -553,6 +564,165 @@ class GeminiVisionClient(private val context: Context) {
             ?: throw IllegalStateException("No parts in content.")
         if (parts.length() == 0) throw IllegalStateException("Empty parts in content.")
         return parts.getJSONObject(0).optString("text", "").trim()
+    }
+
+    suspend fun analyzeSupplementLabel(
+        imageUris: List<Uri>,
+        apiKey: String,
+        userNote: String = ""
+    ): Result<SupplementScanResult> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(
+                IllegalStateException("Gemini API key is not configured. Please enter your Google AI Studio API key in Settings -> AI Vision Scanner.")
+            )
+        }
+        if (imageUris.isEmpty() && userNote.isBlank()) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Please attach a supplement bottle/label photo or enter supplement notes.")
+            )
+        }
+
+        try {
+            val base64Images = if (imageUris.isNotEmpty()) {
+                imageUris.mapNotNull { encodeImageToBase64(it) }
+            } else {
+                emptyList()
+            }
+            if (imageUris.isNotEmpty() && base64Images.isEmpty()) {
+                return@withContext Result.failure(IllegalArgumentException("Failed to decode the selected image(s)."))
+            }
+
+            val models = listOf(
+                "gemini-flash-lite-latest",
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-3.6-flash",
+                "gemini-flash-latest"
+            )
+            var lastError: Exception? = null
+
+            for (model in models) {
+                try {
+                    val result = callGeminiSupplementLabel(model, apiKey, base64Images, userNote)
+                    return@withContext Result.success(result)
+                } catch (e: Exception) {
+                    val msg = e.message.orEmpty()
+                    lastError = e
+                    val isRecoverable = msg.contains("404") || msg.contains("503") ||
+                            msg.contains("429") || msg.contains("UNAVAILABLE") ||
+                            msg.contains("not found", ignoreCase = true) ||
+                            msg.contains("no longer available", ignoreCase = true) ||
+                            msg.contains("timeout", ignoreCase = true) ||
+                            msg.contains("timed out", ignoreCase = true) ||
+                            e is java.net.SocketTimeoutException ||
+                            e is java.net.SocketException ||
+                            e is java.io.InterruptedIOException
+                    if (!isRecoverable) throw e
+                }
+            }
+            Result.failure(lastError ?: RuntimeException("Could not scan supplement label."))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error scanning supplement label", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun callGeminiSupplementLabel(
+        model: String,
+        apiKey: String,
+        base64Jpegs: List<String>,
+        userNote: String
+    ): SupplementScanResult {
+        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+        val conn = (URL(endpoint).openConnection() as HttpsURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json")
+            connectTimeout = 15000
+            readTimeout = 25000
+            doInput = true
+            doOutput = true
+        }
+
+        val promptText = buildString {
+            append("Extract supplement/pill details for a single daily serving from the attached bottle/label photo(s) and/or notes.")
+            if (userNote.isNotBlank()) append("\nUser notes: ").append(userNote)
+            append(
+                """
+                
+                Return strictly JSON with this schema:
+                {
+                  "name": "Short supplement name (e.g. Fish Oil, Magnesium Glycinate, Multivitamin)",
+                  "dosageDescription": "Serving dose (e.g. 2400mg, 2 softgels, 4g)",
+                  "calories": 0,
+                  "proteinGrams": 0.0,
+                  "carbsGrams": 0.0,
+                  "fatGrams": 0.0,
+                  "micronutrientsSummary": "Concise comma-separated active ingredients/micronutrients per serving (e.g. EPA 720mg, DHA 480mg, Vitamin E 10mg)",
+                  "notes": "Short helpful note (e.g. Take with food)"
+                }
+                """.trimIndent()
+            )
+        }
+
+        val contentParts = JSONArray().apply {
+            base64Jpegs.forEach { b64 ->
+                put(
+                    JSONObject().put(
+                        "inline_data",
+                        JSONObject().put("mime_type", "image/jpeg").put("data", b64)
+                    )
+                )
+            }
+            put(JSONObject().put("text", promptText))
+        }
+
+        val genConfig = JSONObject().apply {
+            put("response_mime_type", "application/json")
+            put("maxOutputTokens", 512)
+            if (!model.contains("lite")) {
+                put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+            }
+        }
+
+        val requestJson = JSONObject()
+            .put("contents", JSONArray().put(JSONObject().put("parts", contentParts)))
+            .put("generationConfig", genConfig)
+
+        OutputStreamWriter(conn.outputStream).use { it.write(requestJson.toString()) }
+
+        val responseCode = conn.responseCode
+        if (responseCode !in 200..299) {
+            val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "HTTP $responseCode"
+            throw RuntimeException("Gemini error ($responseCode): $errorBody")
+        }
+
+        val responseBody = conn.inputStream.bufferedReader().use { it.readText() }
+        val rawText = JSONObject(responseBody)
+            .optJSONArray("candidates")
+            ?.optJSONObject(0)
+            ?.optJSONObject("content")
+            ?.optJSONArray("parts")
+            ?.optJSONObject(0)
+            ?.optString("text", "")
+            .orEmpty()
+
+        val cleanedJson = rawText.trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val parsed = JSONObject(cleanedJson)
+
+        return SupplementScanResult(
+            name = parsed.optString("name", "Supplement").trim().ifBlank { "Supplement" },
+            dosageDescription = parsed.optString("dosageDescription", "").trim(),
+            calories = parsed.optInt("calories", 0),
+            proteinGrams = parsed.optDouble("proteinGrams", 0.0).toFloat(),
+            carbsGrams = parsed.optDouble("carbsGrams", 0.0).toFloat(),
+            fatGrams = parsed.optDouble("fatGrams", 0.0).toFloat(),
+            micronutrientsSummary = parsed.optString("micronutrientsSummary", "").trim(),
+            notes = parsed.optString("notes", "").trim()
+        )
     }
 
     private fun encodeImageToBase64(uri: Uri): String? {

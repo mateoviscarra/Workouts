@@ -136,7 +136,9 @@ import com.mateoviscarra.doitall.data.HandScaleReference
 import com.mateoviscarra.doitall.data.MealIngredient
 import com.mateoviscarra.doitall.data.MealSlot
 import com.mateoviscarra.doitall.data.NutritionGoals
+import com.mateoviscarra.doitall.data.PillLogEntry
 import com.mateoviscarra.doitall.data.SavedMeal
+import com.mateoviscarra.doitall.data.SupplementPill
 import com.mateoviscarra.doitall.data.UserProfile
 import com.mateoviscarra.doitall.data.WeightLogEntry
 import com.mateoviscarra.doitall.data.persist.WeightUnit
@@ -169,6 +171,9 @@ fun NutritionScreen(
     val dayLogs by viewModel.currentDayLogs.collectAsStateWithLifecycle()
     val savedMeals by viewModel.savedMeals.collectAsStateWithLifecycle()
     val allWeightLogs by viewModel.allWeightLogs.collectAsStateWithLifecycle()
+    val supplements by viewModel.supplements.collectAsStateWithLifecycle()
+    val dayPillLogs by viewModel.currentDayPillLogs.collectAsStateWithLifecycle()
+    val allPillLogs by viewModel.allPillLogs.collectAsStateWithLifecycle()
     val currentDayWeight by viewModel.currentDayWeight.collectAsStateWithLifecycle()
     val latestWeight by viewModel.latestWeight.collectAsStateWithLifecycle()
     val sevenDayAverageWeight by viewModel.sevenDayAverageWeight.collectAsStateWithLifecycle()
@@ -185,6 +190,11 @@ fun NutritionScreen(
     var showStapleEditorDialog by remember { mutableStateOf(false) }
     var stapleToEdit by remember { mutableStateOf<SavedMeal?>(null) }
     var stapleToDelete by remember { mutableStateOf<SavedMeal?>(null) }
+
+    var showPillEditorDialog by remember { mutableStateOf(false) }
+    var pillToEdit by remember { mutableStateOf<SupplementPill?>(null) }
+    var pillToDelete by remember { mutableStateOf<SupplementPill?>(null) }
+    var staplesSubTab by rememberSaveable { mutableIntStateOf(0) } // 0 = Staple Meals, 1 = Pills & Supplements
 
     var showWeightDialog by remember { mutableStateOf(false) }
     var weightLogToEdit by remember { mutableStateOf<WeightLogEntry?>(null) }
@@ -359,7 +369,7 @@ fun NutritionScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Staples")
+                            Text("Staples & Pills", maxLines = 1)
                         }
                     }
                 )
@@ -385,6 +395,8 @@ fun NutritionScreen(
                         totals = dayTotals,
                         dayLogs = dayLogs,
                         savedMeals = savedMeals,
+                        supplements = supplements,
+                        dayPillLogs = dayPillLogs,
                         currentDayWeight = currentDayWeight,
                         onPreviousDay = { viewModel.previousDay() },
                         onNextDay = { viewModel.nextDay() },
@@ -410,6 +422,7 @@ fun NutritionScreen(
                             showQuickAddDialog = true
                         },
                         onManageStaplesClick = {
+                            staplesSubTab = 0
                             selectedTab = 1
                         },
                         onNewStapleClick = {
@@ -419,6 +432,17 @@ fun NutritionScreen(
                         onLogStaple = { staple ->
                             viewModel.logStaple(staple)
                             Toast.makeText(context, "Added ${staple.name} to log", Toast.LENGTH_SHORT).show()
+                        },
+                        onTogglePillTaken = { pill ->
+                            viewModel.togglePillTaken(pill, selectedDateIso)
+                        },
+                        onPillClick = { pill ->
+                            pillToEdit = pill
+                            showPillEditorDialog = true
+                        },
+                        onManagePillsClick = {
+                            staplesSubTab = 1
+                            selectedTab = 1
                         },
                         onAddSlotEntry = { slot ->
                             initialSlotForAdd = slot
@@ -441,28 +465,73 @@ fun NutritionScreen(
                     )
                 }
                 1 -> {
-                    // TAB 1: STAPLES
-                    StaplesManagementView(
-                        savedMeals = savedMeals,
-                        onNewStapleClick = {
-                            stapleToEdit = null
-                            showStapleEditorDialog = true
-                        },
-                        onEditStaple = { staple ->
-                            stapleToEdit = staple
-                            showStapleEditorDialog = true
-                        },
-                        onDeleteStaple = { staple ->
-                            stapleToDelete = staple
-                        },
-                        onTogglePin = { stapleId ->
-                            viewModel.togglePinnedStaple(stapleId)
-                        },
-                        onLogStapleToToday = { staple ->
-                            viewModel.logStaple(staple)
-                            Toast.makeText(context, "Added ${staple.name} to today's log", Toast.LENGTH_SHORT).show()
+                    // TAB 1: STAPLES & PILLS
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = staplesSubTab == 0,
+                                onClick = { staplesSubTab = 0 },
+                                label = { Text("Staple Meals (${savedMeals.size})") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = staplesSubTab == 1,
+                                onClick = { staplesSubTab = 1 },
+                                label = { Text("Pills & Supplements (${supplements.size})") },
+                                modifier = Modifier.weight(1f)
+                            )
                         }
-                    )
+                        if (staplesSubTab == 0) {
+                            StaplesManagementView(
+                                savedMeals = savedMeals,
+                                onNewStapleClick = {
+                                    stapleToEdit = null
+                                    showStapleEditorDialog = true
+                                },
+                                onEditStaple = { staple ->
+                                    stapleToEdit = staple
+                                    showStapleEditorDialog = true
+                                },
+                                onDeleteStaple = { staple ->
+                                    stapleToDelete = staple
+                                },
+                                onTogglePin = { stapleId ->
+                                    viewModel.togglePinnedStaple(stapleId)
+                                },
+                                onLogStapleToToday = { staple ->
+                                    viewModel.logStaple(staple)
+                                    Toast.makeText(context, "Added ${staple.name} to today's log", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        } else {
+                            PillsManagementView(
+                                supplements = supplements,
+                                getMissedDates = { pill ->
+                                    // Recomputed whenever allPillLogs or supplements change
+                                    allPillLogs.let { viewModel.getMissedDatesForPill(pill) }
+                                },
+                                onNewPillClick = {
+                                    pillToEdit = null
+                                    showPillEditorDialog = true
+                                },
+                                onEditPill = { pill ->
+                                    pillToEdit = pill
+                                    showPillEditorDialog = true
+                                },
+                                onDeletePill = { pill ->
+                                    pillToDelete = pill
+                                },
+                                onToggleNotification = { pill, enabled ->
+                                    viewModel.saveSupplement(pill.copy(notificationsEnabled = enabled))
+                                }
+                            )
+                        }
+                    }
                 }
                 2 -> {
                     // TAB 2: WEIGHT & TRENDS
@@ -583,6 +652,50 @@ fun NutritionScreen(
             },
             dismissButton = {
                 TextButton(onClick = { stapleToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // --- PILL EDITOR DIALOG ---
+    if (showPillEditorDialog) {
+        PillEditorDialog(
+            initialPill = pillToEdit,
+            apiKey = apiKey,
+            visionClient = visionClient,
+            onDismiss = {
+                showPillEditorDialog = false
+                pillToEdit = null
+            },
+            onSave = { savedPill ->
+                viewModel.saveSupplement(savedPill)
+                showPillEditorDialog = false
+                pillToEdit = null
+                Toast.makeText(context, "Saved ${savedPill.name}", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // --- PILL DELETE CONFIRMATION ---
+    pillToDelete?.let { pill ->
+        AlertDialog(
+            onDismissRequest = { pillToDelete = null },
+            title = { Text("Delete Pill / Supplement") },
+            text = { Text("Are you sure you want to remove '${pill.name}' and cancel its reminders?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteSupplement(pill.id)
+                        pillToDelete = null
+                        Toast.makeText(context, "Deleted ${pill.name}", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pillToDelete = null }) {
                     Text("Cancel")
                 }
             }
@@ -1243,6 +1356,8 @@ private fun DailyLogView(
     totals: DayNutritionTotals,
     dayLogs: List<FoodLogEntry>,
     savedMeals: List<SavedMeal>,
+    supplements: List<SupplementPill>,
+    dayPillLogs: List<PillLogEntry>,
     currentDayWeight: WeightLogEntry?,
     onPreviousDay: () -> Unit,
     onNextDay: () -> Unit,
@@ -1253,6 +1368,9 @@ private fun DailyLogView(
     onManageStaplesClick: () -> Unit,
     onNewStapleClick: () -> Unit,
     onLogStaple: (SavedMeal) -> Unit,
+    onTogglePillTaken: (SupplementPill) -> Unit,
+    onPillClick: (SupplementPill) -> Unit,
+    onManagePillsClick: () -> Unit,
     onAddSlotEntry: (MealSlot) -> Unit,
     onEntryClick: (FoodLogEntry) -> Unit,
     onMoveEntry: (FoodLogEntry, MealSlot) -> Unit,
@@ -1356,6 +1474,16 @@ private fun DailyLogView(
                 }
             }
         }
+
+        // --- PILLS & SUPPLEMENTS CARD ---
+        PillsDailyLogCard(
+            selectedDateIso = selectedDateIso,
+            supplements = supplements,
+            dayPillLogs = dayPillLogs,
+            onToggleTaken = onTogglePillTaken,
+            onPillClick = onPillClick,
+            onManagePillsClick = onManagePillsClick
+        )
 
         // --- TODAY'S LOG (BY MEAL SLOT) ---
         Text(
