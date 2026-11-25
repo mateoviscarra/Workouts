@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -45,12 +47,14 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -82,6 +86,7 @@ import com.google.android.gms.common.api.CommonStatusCodes
 import com.mateoviscarra.doitall.calendar.CalendarManager
 import com.mateoviscarra.doitall.data.DataBackupManager
 import com.mateoviscarra.doitall.data.DriveSyncManager
+import com.mateoviscarra.doitall.data.HandScaleReference
 import com.mateoviscarra.doitall.data.NutritionGoals
 import com.mateoviscarra.doitall.data.NutritionRepository
 import com.mateoviscarra.doitall.data.RecoverableDriveAuthException
@@ -133,6 +138,7 @@ fun SettingsScreen(
     val savedProfile by repo.userProfile.collectAsStateWithLifecycle()
     val apiKey by repo.geminiApiKey.collectAsStateWithLifecycle()
     val aiPrompt by repo.aiPrompt.collectAsStateWithLifecycle()
+    val savedHandRef by repo.handScaleRef.collectAsStateWithLifecycle()
 
     // Local profile states
     var heightInput by remember { mutableStateOf("") }
@@ -172,6 +178,44 @@ fun SettingsScreen(
     var isApiKeyVisible by remember { mutableStateOf(false) }
 
     var promptInput by remember(aiPrompt) { mutableStateOf(aiPrompt) }
+
+    // Hand scale reference states
+    var handRefEnabled by remember { mutableStateOf(false) }
+    var handLengthInput by remember { mutableStateOf("") }
+    var palmLengthInput by remember { mutableStateOf("") }
+    var palmWidthInput by remember { mutableStateOf("") }
+    var middleFingerInput by remember { mutableStateOf("") }
+    var handSpanInput by remember { mutableStateOf("") }
+    var handNotesInput by remember { mutableStateOf("") }
+    var showHandPromptPreview by remember { mutableStateOf(false) }
+
+    fun populateHandInputs(ref: HandScaleReference) {
+        handRefEnabled = ref.enabled
+        handLengthInput = if (ref.handLengthCm > 0f) HandScaleReference.formatCm(ref.handLengthCm) else ""
+        palmLengthInput = if (ref.palmLengthCm > 0f) HandScaleReference.formatCm(ref.palmLengthCm) else ""
+        palmWidthInput = if (ref.palmWidthCm > 0f) HandScaleReference.formatCm(ref.palmWidthCm) else ""
+        middleFingerInput = if (ref.middleFingerCm > 0f) HandScaleReference.formatCm(ref.middleFingerCm) else ""
+        handSpanInput = if (ref.handSpanCm > 0f) HandScaleReference.formatCm(ref.handSpanCm) else ""
+        handNotesInput = ref.customNotes
+    }
+
+    LaunchedEffect(savedHandRef) {
+        populateHandInputs(savedHandRef)
+    }
+
+    fun parseCm(raw: String): Float =
+        raw.trim().replace(',', '.').toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
+
+    fun buildHandRefFromInputs(overrideEnabled: Boolean = handRefEnabled): HandScaleReference =
+        HandScaleReference(
+            enabled = overrideEnabled,
+            handLengthCm = parseCm(handLengthInput),
+            palmLengthCm = parseCm(palmLengthInput),
+            palmWidthCm = parseCm(palmWidthInput),
+            middleFingerCm = parseCm(middleFingerInput),
+            handSpanCm = parseCm(handSpanInput),
+            customNotes = handNotesInput.trim()
+        )
 
     // Dialog state for restore confirmation / result
     var restoreResultDialogMessage by remember { mutableStateOf<String?>(null) }
@@ -703,6 +747,183 @@ fun SettingsScreen(
                             }
                         ) {
                             Text("Save Prompt")
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    // --- HAND SCALE REFERENCE ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Straighten,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Hand Scale Reference",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Use your hand as a physical scale in food photos (ignored if no hand is visible).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = handRefEnabled,
+                            onCheckedChange = { checked ->
+                                handRefEnabled = checked
+                                repo.updateHandScaleReference(buildHandRefFromInputs(overrideEnabled = checked))
+                            }
+                        )
+                    }
+
+                    if (!handRefEnabled) {
+                        val lengthSummary = if (parseCm(handLengthInput) > 0f) {
+                            "${HandScaleReference.formatCm(parseCm(handLengthInput))} cm hand length ready"
+                        } else {
+                            "No measurements set yet"
+                        }
+                        Text(
+                            text = "Off — $lengthSummary. Toggle on to customize or activate.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = handLengthInput,
+                                onValueChange = { handLengthInput = it },
+                                label = { Text("Hand Length (cm)") },
+                                placeholder = { Text("e.g. 17.5") },
+                                supportingText = { Text("Wrist to middle tip") },
+                                modifier = Modifier.weight(1f),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = palmWidthInput,
+                                onValueChange = { palmWidthInput = it },
+                                label = { Text("Palm Width (cm)") },
+                                placeholder = { Text("e.g. 8.5") },
+                                supportingText = { Text("Across knuckles") },
+                                modifier = Modifier.weight(1f),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = palmLengthInput,
+                                onValueChange = { palmLengthInput = it },
+                                label = { Text("Palm Length (cm)") },
+                                placeholder = { Text("e.g. 10.0") },
+                                supportingText = { Text("Wrist to finger base") },
+                                modifier = Modifier.weight(1f),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = middleFingerInput,
+                                onValueChange = { middleFingerInput = it },
+                                label = { Text("Middle Finger (cm)") },
+                                placeholder = { Text("e.g. 7.5") },
+                                supportingText = { Text("Palm crease to tip") },
+                                modifier = Modifier.weight(1f),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = handSpanInput,
+                            onValueChange = { handSpanInput = it },
+                            label = { Text("Open Hand Span (cm)") },
+                            placeholder = { Text("e.g. 16.2") },
+                            supportingText = { Text("Thumb tip to pinky tip when open") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = handNotesInput,
+                            onValueChange = { handNotesInput = it },
+                            label = { Text("Extra Notes (optional)") },
+                            placeholder = { Text("e.g. Middle finger width ~1.7 cm; relaxed open pose") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 1,
+                            maxLines = 3
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    val cleanH = heightInput.trim().replace(',', '.').toFloatOrNull() ?: 0f
+                                    val est = HandScaleReference.estimateFromHeight(cleanH, selectedSex, enabled = handRefEnabled)
+                                    populateHandInputs(est)
+                                    Toast.makeText(context, "Estimated hand sizes from height — adjust if needed", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text("Estimate from Height")
+                            }
+
+                            Button(
+                                onClick = {
+                                    repo.updateHandScaleReference(buildHandRefFromInputs())
+                                    Toast.makeText(context, "Hand scale reference saved!", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text("Save Hand Ref")
+                            }
+                        }
+
+                        TextButton(
+                            onClick = { showHandPromptPreview = !showHandPromptPreview },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text(if (showHandPromptPreview) "Hide Prompt Preview" else "Preview Prompt Snippet")
+                        }
+
+                        if (showHandPromptPreview) {
+                            val previewText = buildHandRefFromInputs(overrideEnabled = true).buildPromptInstruction()
+                                .ifBlank { "Add at least one measurement above to activate the prompt snippet." }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = previewText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
                         }
                     }
                 }

@@ -45,19 +45,22 @@ class GeminiVisionClient(private val context: Context) {
         imageUri: Uri,
         apiKey: String,
         systemPrompt: String,
-        userNote: String = ""
+        userNote: String = "",
+        handScaleInstruction: String = ""
     ): Result<FoodScanResult> = analyzeFoodImages(
         imageUris = listOf(imageUri),
         apiKey = apiKey,
         systemPrompt = systemPrompt,
-        userNote = userNote
+        userNote = userNote,
+        handScaleInstruction = handScaleInstruction
     )
 
     suspend fun analyzeFoodImages(
         imageUris: List<Uri>,
         apiKey: String,
         systemPrompt: String,
-        userNote: String = ""
+        userNote: String = "",
+        handScaleInstruction: String = ""
     ): Result<FoodScanResult> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             return@withContext Result.failure(
@@ -93,7 +96,7 @@ class GeminiVisionClient(private val context: Context) {
             for (model in models) {
                 try {
                     Log.d(TAG, "Attempting food analysis (${base64Images.size} images) with model: $model")
-                    val result = callGeminiGenerate(model, apiKey, systemPrompt, base64Images, userNote)
+                    val result = callGeminiGenerate(model, apiKey, systemPrompt, base64Images, userNote, handScaleInstruction)
                     return@withContext Result.success(result)
                 } catch (e: Exception) {
                     val msg = e.message.orEmpty()
@@ -128,7 +131,8 @@ class GeminiVisionClient(private val context: Context) {
         apiKey: String,
         systemPrompt: String,
         base64Jpegs: List<String>,
-        userNote: String
+        userNote: String,
+        handScaleInstruction: String = ""
     ): FoodScanResult {
         val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
         val url = URL(endpoint)
@@ -162,6 +166,9 @@ class GeminiVisionClient(private val context: Context) {
                 append("\n2. If both a nutrition label and a portion/serving photo (or user note) are provided, use the nutrition label values scaled to the actual serving size shown or described.")
                 append("\n3. Keep 'mealName' short, simple, and clean (1 to 3 words maximum, e.g. 'Ceviche', 'Silpancho', 'Oatmeal', 'Steak & Rice', 'Protein Bar'). Do NOT create long compound or overly descriptive names (e.g. use 'Ceviche' instead of 'Ceviche Boliviano de Trucha con Camote').")
                 append("\n4. If user context notes extra sides or ingredients (e.g. 'camote', 'extra cheese'), factor their calories and macros into the overall totals, and mention them in 'servingDescription' (e.g. '1 plato con camote') or 'notes', but keep 'mealName' concise.")
+                if (handScaleInstruction.isNotBlank()) {
+                    append("\n\n").append(handScaleInstruction.trim())
+                }
                 if (userNote.isNotBlank()) {
                     append("\nUser context / notes: ").append(userNote)
                 }

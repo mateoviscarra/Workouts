@@ -48,6 +48,7 @@ import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -131,6 +132,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mateoviscarra.doitall.data.DayNutritionTotals
 import com.mateoviscarra.doitall.data.EntrySource
 import com.mateoviscarra.doitall.data.FoodLogEntry
+import com.mateoviscarra.doitall.data.HandScaleReference
 import com.mateoviscarra.doitall.data.MealIngredient
 import com.mateoviscarra.doitall.data.MealSlot
 import com.mateoviscarra.doitall.data.NutritionGoals
@@ -173,6 +175,7 @@ fun NutritionScreen(
     val weeklyWeightDelta by viewModel.weeklyWeightDelta.collectAsStateWithLifecycle()
     val apiKey by viewModel.geminiApiKey.collectAsStateWithLifecycle()
     val aiPrompt by viewModel.aiPrompt.collectAsStateWithLifecycle()
+    val handScaleRef by viewModel.handScaleRef.collectAsStateWithLifecycle()
 
     // Dialog & Sheet States
     var showQuickAddDialog by remember { mutableStateOf(false) }
@@ -190,9 +193,16 @@ fun NutritionScreen(
     var showScanSourceSheet by remember { mutableStateOf(false) }
     var selectedScanUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var scanUserNote by remember { mutableStateOf("") }
+    var useHandScaleForScan by remember { mutableStateOf(handScaleRef.enabled) }
     var isAnalyzingPhoto by remember { mutableStateOf(false) }
     var scannedResult by remember { mutableStateOf<FoodScanResult?>(null) }
     var scanErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(showScanSourceSheet, handScaleRef.enabled) {
+        if (showScanSourceSheet) {
+            useHandScaleForScan = handScaleRef.enabled
+        }
+    }
 
     // Menu Coach States ("What to Order")
     var showMenuCoachSheet by remember { mutableStateOf(false) }
@@ -240,12 +250,18 @@ fun NutritionScreen(
         if (selectedScanUris.isEmpty() && scanUserNote.isBlank()) return
         showScanSourceSheet = false
         isAnalyzingPhoto = true
+        val handInstruction = if (useHandScaleForScan && selectedScanUris.isNotEmpty() && handScaleRef.hasAnyMeasurements()) {
+            handScaleRef.copy(enabled = true).buildPromptInstruction()
+        } else {
+            ""
+        }
         scope.launch {
             val result = visionClient.analyzeFoodImages(
                 imageUris = selectedScanUris,
                 apiKey = apiKey,
                 systemPrompt = aiPrompt,
-                userNote = scanUserNote
+                userNote = scanUserNote,
+                handScaleInstruction = handInstruction
             )
             isAnalyzingPhoto = false
             if (result.isSuccess) {
@@ -701,6 +717,41 @@ fun NutritionScreen(
                                     onRemove = {
                                         selectedScanUris = selectedScanUris.filterNot { it == uri }
                                     }
+                                )
+                            }
+                        }
+
+                        if (handScaleRef.hasAnyMeasurements()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                FilterChip(
+                                    selected = useHandScaleForScan,
+                                    onClick = { useHandScaleForScan = !useHandScaleForScan },
+                                    leadingIcon = if (useHandScaleForScan) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    label = {
+                                        val labelText = if (handScaleRef.handLengthCm > 0f) {
+                                            "Hand scale ref (${HandScaleReference.formatCm(handScaleRef.handLengthCm)} cm)"
+                                        } else {
+                                            "Hand scale ref"
+                                        }
+                                        Text(labelText, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                )
+                                Text(
+                                    text = if (useHandScaleForScan) "Active if hand in frame" else "Ignored",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }

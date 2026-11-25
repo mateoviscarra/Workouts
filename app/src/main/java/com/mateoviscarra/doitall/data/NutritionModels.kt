@@ -3,7 +3,9 @@ package com.mateoviscarra.doitall.data
 import com.mateoviscarra.doitall.data.persist.WeightUnit
 import java.time.LocalDate
 import java.time.Period
+import java.util.Locale
 import java.util.UUID
+import kotlin.math.roundToInt
 
 enum class MealSlot(val displayName: String) {
     BREAKFAST("Breakfast"),
@@ -169,6 +171,74 @@ data class UserProfile(
             Period.between(birthDate, today).years.takeIf { it in 1..120 }
         } catch (_: Exception) {
             null
+        }
+    }
+}
+
+/**
+ * Optional physical hand dimensions used by Gemini Vision to gauge plate/dish sizes when a hand is in frame.
+ */
+data class HandScaleReference(
+    val enabled: Boolean = false,
+    val handLengthCm: Float = 0f,       // Wrist crease to middle fingertip
+    val palmLengthCm: Float = 0f,       // Wrist crease to base of middle finger
+    val palmWidthCm: Float = 0f,        // Across the 4 knuckles
+    val middleFingerCm: Float = 0f,     // Palmar crease to tip
+    val handSpanCm: Float = 0f,         // Open hand thumb tip to pinky tip
+    val customNotes: String = ""        // Optional extra notes (e.g. fist width, pose)
+) {
+    fun hasAnyMeasurements(): Boolean =
+        handLengthCm > 0f || palmLengthCm > 0f || palmWidthCm > 0f ||
+            middleFingerCm > 0f || handSpanCm > 0f || customNotes.isNotBlank()
+
+    fun buildPromptInstruction(): String {
+        if (!enabled || !hasAnyMeasurements()) return ""
+        return buildString {
+            appendLine("OPTIONAL HAND SCALE REFERENCE:")
+            appendLine("If (and ONLY if) a human hand is visibly present near the dish, plate, or food in any photo, assume it is the user's hand with these exact measurements and use it as a physical scale reference to estimate plate diameter, food dimensions, and portion weight/volume (accounting for camera perspective):")
+            if (handLengthCm > 0f) appendLine("- Total hand length (wrist crease to middle fingertip): ${formatCm(handLengthCm)} cm")
+            if (palmLengthCm > 0f) appendLine("- Palm length (wrist crease to base of middle finger): ${formatCm(palmLengthCm)} cm")
+            if (palmWidthCm > 0f) appendLine("- Palm width (across knuckles): ${formatCm(palmWidthCm)} cm")
+            if (middleFingerCm > 0f) appendLine("- Middle finger length (palm crease to tip): ${formatCm(middleFingerCm)} cm")
+            if (handSpanCm > 0f) appendLine("- Open hand span (thumb tip to pinky tip): ${formatCm(handSpanCm)} cm")
+            if (customNotes.isNotBlank()) appendLine("- Additional reference notes: ${customNotes.trim()}")
+            append("If NO human hand is visibly present in the photo(s), completely ignore this scale reference and estimate portions normally.")
+        }
+    }
+
+    companion object {
+        private fun roundOneDecimal(value: Float): Float = (value * 10f).roundToInt() / 10f
+
+        fun formatCm(value: Float): String {
+            val rounded = roundOneDecimal(value)
+            return if (rounded == rounded.toInt().toFloat()) {
+                rounded.toInt().toString()
+            } else {
+                String.format(Locale.US, "%.1f", rounded)
+            }
+        }
+
+        fun estimateFromHeight(heightCm: Float, sex: String = "", enabled: Boolean = false): HandScaleReference {
+            val effectiveHeight = when {
+                heightCm in 120f..230f -> heightCm
+                sex.equals("Female", ignoreCase = true) -> 163f
+                sex.equals("Male", ignoreCase = true) -> 175f
+                else -> 170f
+            }
+            val handLength = roundOneDecimal(effectiveHeight * 0.105f)
+            val palmLength = roundOneDecimal(handLength * 0.57f)
+            val palmWidth = roundOneDecimal(handLength * 0.48f)
+            val middleFinger = roundOneDecimal(handLength * 0.43f)
+            val handSpan = roundOneDecimal(handLength * 1.08f)
+            return HandScaleReference(
+                enabled = enabled,
+                handLengthCm = handLength,
+                palmLengthCm = palmLength,
+                palmWidthCm = palmWidth,
+                middleFingerCm = middleFinger,
+                handSpanCm = handSpan,
+                customNotes = "Estimated from height (${formatCm(effectiveHeight)} cm) — measure your hand to refine"
+            )
         }
     }
 }

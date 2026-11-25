@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.mateoviscarra.doitall.data.DayNutritionTotals
 import com.mateoviscarra.doitall.data.EntrySource
 import com.mateoviscarra.doitall.data.FoodLogEntry
+import com.mateoviscarra.doitall.data.HandScaleReference
 import com.mateoviscarra.doitall.data.MealSlot
 import com.mateoviscarra.doitall.data.NutritionGoals
 import com.mateoviscarra.doitall.data.NutritionRepository
@@ -37,6 +38,7 @@ class NutritionViewModel @JvmOverloads constructor(
     val allFoodLogs: StateFlow<List<FoodLogEntry>> = repository.foodLogs
     val allWeightLogs: StateFlow<List<WeightLogEntry>> = repository.weightLogs
     val aiPrompt: StateFlow<String> = repository.aiPrompt
+    val handScaleRef: StateFlow<HandScaleReference> = repository.handScaleRef
     val geminiApiKey: StateFlow<String> = repository.geminiApiKey
 
     // Weight for currently selected date
@@ -221,6 +223,10 @@ class NutritionViewModel @JvmOverloads constructor(
 
     fun resetAiPromptToDefault() {
         repository.resetAiPromptToDefault()
+    }
+
+    fun updateHandScaleReference(ref: HandScaleReference) {
+        repository.updateHandScaleReference(ref)
     }
 
     fun updateGeminiApiKey(key: String) {

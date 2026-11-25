@@ -22,6 +22,7 @@ private const val KEY_WEIGHT_LOGS = "weight_logs_json"
 private const val KEY_NUTRITION_GOALS = "nutrition_goals_json"
 private const val KEY_USER_PROFILE = "user_profile_json"
 private const val KEY_AI_PROMPT = "custom_ai_prompt"
+private const val KEY_HAND_SCALE_REF = "hand_scale_ref_json"
 private const val KEY_GEMINI_API_KEY = "gemini_api_key"
 
 class NutritionRepository(
@@ -48,6 +49,9 @@ class NutritionRepository(
     private val _aiPrompt = MutableStateFlow(DEFAULT_NUTRITION_AI_PROMPT)
     val aiPrompt: StateFlow<String> = _aiPrompt.asStateFlow()
 
+    private val _handScaleRef = MutableStateFlow(HandScaleReference.estimateFromHeight(0f))
+    val handScaleRef: StateFlow<HandScaleReference> = _handScaleRef.asStateFlow()
+
     private val _geminiApiKey = MutableStateFlow("")
     val geminiApiKey: StateFlow<String> = _geminiApiKey.asStateFlow()
 
@@ -72,6 +76,10 @@ class NutritionRepository(
         prefs.getString(KEY_WEIGHT_LOGS, null)?.takeIf { it.isNotBlank() }?.let {
             runCatching { parseWeightLogs(it) }.getOrNull()?.let { _weightLogs.value = it }
         }
+        prefs.getString(KEY_AI_PROMPT, null)?.takeIf { it.isNotBlank() && it.contains("mealName") }?.let {
+            _aiPrompt.value = it
+        }
+        _handScaleRef.value = loadHandScaleRef(_userProfile.value)
         prefs.getString(KEY_GEMINI_API_KEY, null)?.let { _geminiApiKey.value = it }
     }
 
@@ -203,7 +211,42 @@ class NutritionRepository(
         } else {
             savedPrompt
         }
+        _handScaleRef.value = loadHandScaleRef(_userProfile.value)
         _geminiApiKey.value = prefs.getString(KEY_GEMINI_API_KEY, "") ?: ""
+    }
+
+    private fun parseHandScaleRef(obj: JSONObject): HandScaleReference =
+        HandScaleReference(
+            enabled = obj.optBoolean("enabled", false),
+            handLengthCm = obj.optDouble("handLengthCm", 0.0).toFloat(),
+            palmLengthCm = obj.optDouble("palmLengthCm", 0.0).toFloat(),
+            palmWidthCm = obj.optDouble("palmWidthCm", 0.0).toFloat(),
+            middleFingerCm = obj.optDouble("middleFingerCm", 0.0).toFloat(),
+            handSpanCm = obj.optDouble("handSpanCm", 0.0).toFloat(),
+            customNotes = obj.optString("customNotes", "")
+        )
+
+    private fun handScaleRefToJson(ref: HandScaleReference): JSONObject =
+        JSONObject().apply {
+            put("enabled", ref.enabled)
+            put("handLengthCm", ref.handLengthCm.toDouble())
+            put("palmLengthCm", ref.palmLengthCm.toDouble())
+            put("palmWidthCm", ref.palmWidthCm.toDouble())
+            put("middleFingerCm", ref.middleFingerCm.toDouble())
+            put("handSpanCm", ref.handSpanCm.toDouble())
+            put("customNotes", ref.customNotes)
+        }
+
+    private fun loadHandScaleRef(profile: UserProfile = _userProfile.value): HandScaleReference {
+        val json = prefs.getString(KEY_HAND_SCALE_REF, null)
+        if (!json.isNullOrBlank()) {
+            try {
+                return parseHandScaleRef(JSONObject(json))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading hand scale reference", e)
+            }
+        }
+        return HandScaleReference.estimateFromHeight(profile.heightCm, profile.sex, enabled = false)
     }
 
     // --- Goals & Profile ---
@@ -483,6 +526,12 @@ class NutritionRepository(
         updateAiPrompt(DEFAULT_NUTRITION_AI_PROMPT)
     }
 
+    fun updateHandScaleReference(ref: HandScaleReference) {
+        _handScaleRef.value = ref
+        prefs.edit().putString(KEY_HAND_SCALE_REF, handScaleRefToJson(ref).toString()).apply()
+        DriveSyncManager.scheduleAutoSync(context, "Hand scale reference updated")
+    }
+
     fun updateGeminiApiKey(key: String) {
         val trimmed = key.trim()
         _geminiApiKey.value = trimmed
@@ -590,6 +639,7 @@ class NutritionRepository(
             })
         }
         root.put("weightLogs", weightsArr)
+        root.put("handScaleReference", handScaleRefToJson(_handScaleRef.value))
 
         return root
     }
@@ -632,6 +682,9 @@ class NutritionRepository(
             val weights = parseWeightLogs(obj.getJSONArray("weightLogs").toString())
             _weightLogs.value = weights
             saveWeightLogsToDisk(weights)
+        }
+        obj.optJSONObject("handScaleReference")?.let { hObj ->
+            updateHandScaleReference(parseHandScaleRef(hObj))
         }
     }
 
