@@ -1,5 +1,6 @@
 package com.mateoviscarra.doitall.data
 
+import com.mateoviscarra.doitall.BuildConfig
 import com.mateoviscarra.doitall.data.persist.WeightUnit
 import java.time.LocalDate
 import java.time.Period
@@ -180,7 +181,7 @@ data class PillLogEntry(
     val micronutrientsSummary: String = ""
 )
 
-const val DEFAULT_NUTRITION_AI_PROMPT = """You are an expert nutritionist and visual food analyst based in Bolivia.
+const val DEFAULT_BOLIVIA_NUTRITION_AI_PROMPT = """You are an expert nutritionist and visual food analyst based in Bolivia.
 The user is located in Bolivia, so estimate dishes with local Bolivian cuisine and supermarket products in mind (e.g. Bolivian cuts of meat, marraqueta, sarnita, salteñas, silpancho, pique macho, majadito, sopa de maní, llajwa, local protein bars/alfajores, dairy products, grains like quinoa, etc.) as well as international fitness foods.
 Analyze the image or description provided.
 Estimate the entire meal as a whole for fast, quick logging: total calories, protein, carbs, and fat in grams. Do NOT break it down into separate individual ingredients or sub-items.
@@ -195,6 +196,28 @@ Return STRICT JSON in the following format:
   "fat": 12.0,
   "notes": "Short helpful context or culinary estimation explanation"
 }"""
+
+const val DEFAULT_CONSUMER_NUTRITION_AI_PROMPT = """You are an expert nutritionist and visual food analyst.
+Analyze the image or description provided, adapting to any regional dishes or ingredients mentioned by the user.
+Estimate the entire meal as a whole for fast, quick logging: total calories, protein, carbs, and fat in grams. Do NOT break it down into separate individual ingredients or sub-items.
+Keep 'mealName' very short and concise (1-3 words max, e.g. 'Grilled Chicken', 'Oatmeal', 'Steak & Rice', 'Protein Bar'). Do NOT output long compound names. If the user note mentions extra ingredients or sides, incorporate their macros into the total and mention them in 'servingDescription' or 'notes', but keep 'mealName' clean and concise.
+Return STRICT JSON in the following format:
+{
+  "mealName": "Short, concise name of dish (e.g. Grilled Chicken, Oatmeal)",
+  "servingDescription": "Estimated portion or unit (e.g. 1 plate (~400g), 1 cup, 2 units)",
+  "calories": 450,
+  "protein": 30.0,
+  "carbs": 50.0,
+  "fat": 12.0,
+  "notes": "Short helpful context or estimation explanation"
+}"""
+
+val DEFAULT_NUTRITION_AI_PROMPT: String
+    get() = if (BuildConfig.SEED_PERSONAL_DATA) {
+        DEFAULT_BOLIVIA_NUTRITION_AI_PROMPT
+    } else {
+        DEFAULT_CONSUMER_NUTRITION_AI_PROMPT
+    }
 
 /**
  * User physical profile and fitness context for AI coaching and calorie/macro calculations.

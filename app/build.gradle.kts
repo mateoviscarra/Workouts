@@ -41,6 +41,19 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("personal") {
+            dimension = "edition"
+            buildConfigField("boolean", "SEED_PERSONAL_DATA", "true")
+        }
+        create("consumer") {
+            dimension = "edition"
+            buildConfigField("boolean", "SEED_PERSONAL_DATA", "false")
+        }
     }
 
     composeOptions {

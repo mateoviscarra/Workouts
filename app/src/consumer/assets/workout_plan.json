@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "metadata": {
+    "language": "en",
+    "notes": [
+      "Starter workout split — customize weights, reps, sets, and days anytime."
+    ]
+  },
+  "categories": [
+    {
+      "id": "push",
+      "name": "Push",
+      "exercises": [
+        { "id": "barbell_bench_press", "name": "Barbell Bench Press", "defaultSets": 3, "defaultReps": "8", "defaultLoad": "60 kg" },
+        { "id": "incline_dumbbell_press", "name": "Incline Dumbbell Press", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "20 kg" },
+        { "id": "weighted_dips", "name": "Weighted Dips", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "seated_db_lateral_raise", "name": "Seated Dumbbell Lateral Raise", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "8 kg" },
+        { "id": "overhead_cable_tricep_extension", "name": "Overhead Cable Tricep Extension", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "20 kg" },
+        { "id": "cable_tricep_pushdown", "name": "Cable Tricep Pushdown", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "25 kg" },
+        { "id": "dumbbell_bench_press", "name": "Dumbbell Bench Press", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "22 kg" },
+        { "id": "machine_chest_press", "name": "Machine Chest Press", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "50 kg" },
+        { "id": "cable_lateral_raise", "name": "Cable Lateral Raise", "defaultSets": 3, "defaultReps": "14", "defaultLoad": "7.5 kg" },
+        { "id": "seated_dumbbell_shoulder_press", "name": "Seated Dumbbell Shoulder Press", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "18 kg" },
+        { "id": "pec_deck", "name": "Pec Deck", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "40 kg" },
+        { "id": "rope_pushdown", "name": "Rope Pushdown", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "20 kg" }
+      ]
+    },
+    {
+      "id": "pull",
+      "name": "Pull",
+      "exercises": [
+        { "id": "pull_ups", "name": "Pull-Ups", "defaultSets": 3, "defaultReps": "8", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "lat_pulldowns", "name": "Lat Pulldowns", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "50 kg" },
+        { "id": "chest_supported_tbar_row", "name": "Chest-Supported T-Bar Row", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "45 kg" },
+        { "id": "seated_cable_row", "name": "Seated Cable Row", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "50 kg" },
+        { "id": "face_pulls", "name": "Face Pulls", "defaultSets": 3, "defaultReps": "15", "defaultLoad": "20 kg" },
+        { "id": "reverse_pec_deck", "name": "Reverse Pec Deck", "defaultSets": 3, "defaultReps": "14", "defaultLoad": "35 kg" },
+        { "id": "barbell_curl", "name": "Barbell Curl", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "25 kg" },
+        { "id": "ez_bar_curl", "name": "EZ-Bar Curl", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "25 kg" },
+        { "id": "hammer_curl", "name": "Hammer Curl", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "12 kg" },
+        { "id": "incline_dumbbell_curl", "name": "Incline Dumbbell Curl", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "10 kg" }
+      ]
+    },
+    {
+      "id": "legs",
+      "name": "Legs",
+      "exercises": [
+        { "id": "barbell_squat", "name": "Barbell Squat", "defaultSets": 3, "defaultReps": "8", "defaultLoad": "70 kg" },
+        { "id": "leg_press", "name": "Leg Press", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "140 kg" },
+        { "id": "romanian_deadlift", "name": "Romanian Deadlift", "defaultSets": 3, "defaultReps": "8", "defaultLoad": "70 kg" },
+        { "id": "leg_extension", "name": "Leg Extension", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "50 kg" },
+        { "id": "lying_leg_curl", "name": "Lying Leg Curl", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "40 kg" },
+        { "id": "seated_leg_curl", "name": "Seated Leg Curl", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "45 kg" },
+        { "id": "bulgarian_split_squat", "name": "Bulgarian Split Squat", "defaultSets": 3, "defaultReps": "10", "defaultLoad": "14 kg" },
+        { "id": "standing_calf_raise", "name": "Standing Calf Raise", "defaultSets": 3, "defaultReps": "14", "defaultLoad": "60 kg" },
+        { "id": "seated_calf_raise", "name": "Seated Calf Raise", "defaultSets": 3, "defaultReps": "14", "defaultLoad": "40 kg" }
+      ]
+    },
+    {
+      "id": "accessory",
+      "name": "Accessory",
+      "exercises": [
+        { "id": "plank", "name": "Plank", "defaultSets": 3, "defaultReps": "60s", "defaultLoad": "Bodyweight", "isTimed": true, "defaultTime": "60s", "isBodyweight": true },
+        { "id": "cable_crunch", "name": "Cable Crunch", "defaultSets": 3, "defaultReps": "15", "defaultLoad": "25 kg" },
+        { "id": "hanging_leg_raise", "name": "Hanging Leg Raise", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "Bodyweight", "isBodyweight": true },
+        { "id": "ab_machine", "name": "Ab Machine", "defaultSets": 3, "defaultReps": "12", "defaultLoad": "40 kg" },
+        { "id": "crunches", "name": "Crunches", "defaultSets": 3, "defaultReps": "15", "defaultLoad": "Bodyweight", "isBodyweight": true }
+      ]
+    },
+    {
+      "id": "cardio",
+      "name": "Cardio",
+      "exercises": [
+        { "id": "running", "name": "Running", "defaultSets": 1, "defaultReps": "20min", "defaultLoad": "", "isTimed": true, "defaultTime": "20min" },
+        { "id": "cycling", "name": "Cycling", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "", "isTimed": true, "defaultTime": "30min" },
+        { "id": "incline_walking", "name": "Incline walking", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "", "isTimed": true, "defaultTime": "30min" },
+        { "id": "walking", "name": "Walking", "defaultSets": 1, "defaultReps": "30min", "defaultLoad": "", "isTimed": true, "defaultTime": "30min" },
+        { "id": "stair_master_", "name": "Stair master", "defaultSets": 1, "defaultReps": "10 mins", "defaultLoad": "", "isTimed": true, "defaultTime": "10 mins", "defaultNotes": "Level 5" }
+      ]
+    }
+  ],
+  "days": [
+    {
+      "day": "Push",
+      "muscle_groups": ["chest", "shoulders", "triceps"],
+      "is_rest_day": false,
+      "exercises": [
+        { "exerciseId": "barbell_bench_press", "alternatives": ["dumbbell_bench_press", "machine_chest_press"] },
+        { "exerciseId": "incline_dumbbell_press", "alternatives": ["pec_deck"] },
+        { "exerciseId": "seated_dumbbell_shoulder_press" },
+        { "exerciseId": "seated_db_lateral_raise", "alternatives": ["cable_lateral_raise"] },
+        { "exerciseId": "cable_tricep_pushdown", "alternatives": ["overhead_cable_tricep_extension", "rope_pushdown"] }
+      ]
+    },
+    {
+      "day": "Pull",
+      "muscle_groups": ["back", "biceps", "rear delts"],
+      "is_rest_day": false,
+      "exercises": [
+        { "exerciseId": "lat_pulldowns", "alternatives": ["pull_ups"] },
+        { "exerciseId": "seated_cable_row", "alternatives": ["chest_supported_tbar_row"] },
+        { "exerciseId": "face_pulls", "alternatives": ["reverse_pec_deck"] },
+        { "exerciseId": "barbell_curl", "alternatives": ["ez_bar_curl", "incline_dumbbell_curl"] },
+        { "exerciseId": "hammer_curl" }
+      ]
+    },
+    {
+      "day": "Legs",
+      "muscle_groups": ["quads", "hamstrings", "glutes", "calves"],
+      "is_rest_day": false,
+      "exercises": [
+        { "exerciseId": "barbell_squat", "alternatives": ["leg_press", "bulgarian_split_squat"] },
+        { "exerciseId": "romanian_deadlift" },
+        { "exerciseId": "leg_extension" },
+        { "exerciseId": "seated_leg_curl", "alternatives": ["lying_leg_curl"] },
+        { "exerciseId": "standing_calf_raise", "alternatives": ["seated_calf_raise"] }
+      ]
+    },
+    {
+      "day": "Abs",
+      "muscle_groups": ["abs"],
+      "is_rest_day": false,
+      "exercises": [
+        { "exerciseId": "ab_machine", "alternatives": ["cable_crunch", "crunches"] },
+        { "exerciseId": "hanging_leg_raise" },
+        { "exerciseId": "plank" }
+      ]
+    },
+    {
+      "day": "Cardio",
+      "muscle_groups": [],
+      "is_rest_day": false,
+      "exercises": [
+        { "exerciseId": "running" },
+        { "exerciseId": "cycling" },
+        { "exerciseId": "incline_walking" },
+        { "exerciseId": "walking" },
+        { "exerciseId": "stair_master_" }
+      ]
+    }
+  ]
+}

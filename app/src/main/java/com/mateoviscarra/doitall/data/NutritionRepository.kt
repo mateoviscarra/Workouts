@@ -3,6 +3,7 @@ package com.mateoviscarra.doitall.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.mateoviscarra.doitall.BuildConfig
 import com.mateoviscarra.doitall.data.persist.WeightUnit
 import com.mateoviscarra.doitall.notifications.PillReminderScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -163,8 +164,8 @@ class NutritionRepository(
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading saved meals", e)
             }
-        } else {
-            // Seed initial staples placeholder for user
+        } else if (BuildConfig.SEED_PERSONAL_DATA) {
+            // Seed initial staples placeholder for personal edition
             val initial = listOf(
                 SavedMeal(
                     id = "staple_overnight_oats",
@@ -229,7 +230,7 @@ class NutritionRepository(
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading supplements", e)
             }
-        } else {
+        } else if (BuildConfig.SEED_PERSONAL_DATA) {
             val todayIso = LocalDate.now().toString()
             val seeded = listOf(
                 SupplementPill(

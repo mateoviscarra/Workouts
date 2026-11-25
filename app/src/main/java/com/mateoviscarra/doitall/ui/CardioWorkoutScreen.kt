@@ -66,6 +66,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mateoviscarra.doitall.BuildConfig
 import com.mateoviscarra.doitall.calendar.CalendarManager
 import com.mateoviscarra.doitall.data.CategoryExercise
 import com.mateoviscarra.doitall.data.CompletedExerciseRecord
@@ -176,8 +177,8 @@ class CardioPreferencesStore(context: Context) {
         val nameLower = def.name.lowercase()
         val notesLower = def.defaultNotes.lowercase()
 
-        // Special defaults matching user's phone history & setup
-        if (idLower == "incline_walking") {
+        // Special defaults matching personal phone history & setup
+        if (BuildConfig.SEED_PERSONAL_DATA && idLower == "incline_walking") {
             return CardioActivityConfig(
                 exerciseId = def.id,
                 durationMinutes = 45,
