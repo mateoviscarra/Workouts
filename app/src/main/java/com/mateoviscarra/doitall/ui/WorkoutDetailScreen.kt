@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -71,6 +72,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -84,6 +86,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -94,6 +97,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontStyle
@@ -101,6 +105,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mateoviscarra.doitall.calendar.CalendarManager
 import com.mateoviscarra.doitall.data.CompletedExerciseRecord
@@ -1979,7 +1986,7 @@ private fun QuickEditExerciseSheet(
                 }
 
                 // Active countdown timer right in the quick edit sheet!
-                PlankCountdownTimer(targetTimeStr = timeTarget)
+                PlankCountdownTimer(targetTimeStr = timeTarget, exerciseName = displayName)
 
                 // Weight / Load
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2665,54 +2672,13 @@ private fun parseSeconds(timeStr: String): Int {
 }
 
 @Composable
-private fun PlankCountdownTimer(targetTimeStr: String) {
+private fun PlankCountdownTimer(
+    targetTimeStr: String,
+    exerciseName: String = "Timed Hold"
+) {
     val context = LocalContext.current
     val totalSeconds = remember(targetTimeStr) { parseSeconds(targetTimeStr).coerceAtLeast(5) }
-    var remainingSeconds by remember(totalSeconds) { mutableIntStateOf(totalSeconds) }
-    var isRunning by remember { mutableStateOf(false) }
-
-    val vibrator = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
-    }
-
-    LaunchedEffect(isRunning, remainingSeconds) {
-        if (isRunning && remainingSeconds > 0) {
-            delay(1000)
-            remainingSeconds--
-            if (remainingSeconds == 0) {
-                isRunning = false
-                try {
-                    vibrator?.let { v ->
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            v.vibrate(VibrationEffect.createOneShot(600, VibrationEffect.DEFAULT_AMPLITUDE))
-                        } else {
-                            @Suppress("DEPRECATION")
-                            v.vibrate(600)
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("PlankTimer", "Vibration failed", e)
-                }
-                try {
-                    val notificationUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-                    val ringtone = android.media.RingtoneManager.getRingtone(context, notificationUri)
-                    ringtone?.play()
-                } catch (e: Exception) {
-                    try {
-                        val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 100)
-                        tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 400)
-                    } catch (e2: Exception) {
-                        android.util.Log.e("PlankTimer", "Sound alert failed", e2)
-                    }
-                }
-            }
-        }
-    }
+    var showFullScreenTimer by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -2728,33 +2694,279 @@ private fun PlankCountdownTimer(targetTimeStr: String) {
         ) {
             Column {
                 Text(
-                    text = if (remainingSeconds == 0) "Time's Up!" else "${remainingSeconds}s remaining",
+                    text = "Timer: $targetTimeStr",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (remainingSeconds == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Timer: $targetTimeStr",
+                    text = "5s setup + ${totalSeconds}s full-screen",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (remainingSeconds < totalSeconds) {
-                    IconButton(onClick = {
-                        isRunning = false
-                        remainingSeconds = totalSeconds
-                    }) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = "Reset timer")
+            Button(
+                onClick = { showFullScreenTimer = true }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Timer,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Start")
+            }
+        }
+    }
+
+    if (showFullScreenTimer) {
+        FullScreenCountdownDialog(
+            exerciseName = exerciseName,
+            totalSeconds = totalSeconds,
+            context = context,
+            onDismiss = { showFullScreenTimer = false }
+        )
+    }
+}
+
+@Composable
+private fun FullScreenCountdownDialog(
+    exerciseName: String,
+    totalSeconds: Int,
+    context: Context,
+    onDismiss: () -> Unit
+) {
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val prev = view.keepScreenOn
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = prev }
+    }
+
+    val vibrator = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+    }
+
+    fun buzz(durationMs: Long) {
+        try {
+            vibrator?.let { v ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    v.vibrate(durationMs)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("PlankTimer", "Vibration failed", e)
+        }
+    }
+
+    fun playCompletionAlert() {
+        buzz(600)
+        try {
+            val notificationUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+            val ringtone = android.media.RingtoneManager.getRingtone(context, notificationUri)
+            ringtone?.play()
+        } catch (_: Exception) {
+            try {
+                val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 100)
+                tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 400)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    var isPrepPhase by remember { mutableStateOf(true) }
+    var prepSeconds by remember { mutableIntStateOf(5) }
+    var remainingSeconds by remember(totalSeconds) { mutableIntStateOf(totalSeconds) }
+    var isRunning by remember { mutableStateOf(true) }
+
+    LaunchedEffect(isRunning, isPrepPhase, prepSeconds, remainingSeconds) {
+        if (!isRunning) return@LaunchedEffect
+        if (isPrepPhase) {
+            if (prepSeconds > 0) {
+                delay(1000)
+                prepSeconds--
+                if (prepSeconds == 0) {
+                    isPrepPhase = false
+                    buzz(180)
+                    try {
+                        val tone = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 90)
+                        tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 200)
+                    } catch (_: Exception) {
                     }
                 }
-                Button(
-                    onClick = {
-                        if (remainingSeconds == 0) remainingSeconds = totalSeconds
-                        isRunning = !isRunning
-                    }
+            }
+        } else if (remainingSeconds > 0) {
+            delay(1000)
+            remainingSeconds--
+            if (remainingSeconds == 0) {
+                isRunning = false
+                playCompletionAlert()
+            }
+        }
+    }
+
+    val isFinished = !isPrepPhase && remainingSeconds == 0
+    val displayNumber = if (isPrepPhase) prepSeconds else remainingSeconds
+    val progress = when {
+        isPrepPhase -> prepSeconds / 5f
+        totalSeconds > 0 -> remainingSeconds.toFloat() / totalSeconds.toFloat()
+        else -> 0f
+    }.coerceIn(0f, 1f)
+
+    val phaseColor = when {
+        isFinished -> MaterialTheme.colorScheme.primary
+        isPrepPhase -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(if (isRunning) "Pause" else if (remainingSeconds == 0) "Restart" else "Start")
+                    Text(
+                        text = exerciseName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text(
+                        text = when {
+                            isFinished -> "COMPLETE"
+                            isPrepPhase -> "GET READY"
+                            !isRunning -> "PAUSED"
+                            else -> "HOLD"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = phaseColor
+                    )
+                }
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(270.dp)
+                ) {
+                    CircularProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxSize(),
+                        strokeWidth = 14.dp,
+                        color = phaseColor,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (isFinished) {
+                            Text(
+                                text = "DONE!",
+                                fontSize = 56.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = phaseColor
+                            )
+                        } else {
+                            Text(
+                                text = "$displayNumber",
+                                fontSize = 104.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = if (isPrepPhase) "starting in..." else "of ${totalSeconds}s",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (isPrepPhase) {
+                        Button(
+                            onClick = {
+                                isPrepPhase = false
+                                prepSeconds = 0
+                                buzz(150)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Text("Skip 5s Setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (isFinished) {
+                        Button(
+                            onClick = {
+                                isPrepPhase = true
+                                prepSeconds = 5
+                                remainingSeconds = totalSeconds
+                                isRunning = true
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Text("Restart (5s Setup)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Button(
+                            onClick = { isRunning = !isRunning },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Text(
+                                text = if (isRunning) "Pause" else "Resume",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(
+                            text = if (isFinished) "Close" else "Cancel Timer",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isFinished) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
         }
