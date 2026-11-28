@@ -1,6 +1,7 @@
 package com.mateoviscarra.doitall.viewmodel
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mateoviscarra.doitall.data.DayNutritionTotals
@@ -15,6 +16,8 @@ import com.mateoviscarra.doitall.data.SavedMeal
 import com.mateoviscarra.doitall.data.SupplementPill
 import com.mateoviscarra.doitall.data.WeightLogEntry
 import com.mateoviscarra.doitall.data.persist.WeightUnit
+import com.mateoviscarra.doitall.network.FoodScanResult
+import com.mateoviscarra.doitall.network.GeminiVisionClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,9 +25,32 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+
+data class AiScanUiState(
+    val showSheet: Boolean = false,
+    val selectedUris: List<Uri> = emptyList(),
+    val userNote: String = "",
+    val useHandScale: Boolean = true,
+    val isAnalyzing: Boolean = false,
+    val scannedResult: FoodScanResult? = null,
+    val errorMessage: String? = null,
+    val cameraTempUri: Uri? = null
+)
+
+data class MenuCoachUiState(
+    val showSheet: Boolean = false,
+    val selectedUris: List<Uri> = emptyList(),
+    val userText: String = "",
+    val isAnalyzing: Boolean = false,
+    val adviceResult: String? = null,
+    val errorMessage: String? = null,
+    val cameraTempUri: Uri? = null
+)
 
 class NutritionViewModel @JvmOverloads constructor(
     application: Application,
@@ -281,5 +307,208 @@ class NutritionViewModel @JvmOverloads constructor(
 
     fun updateGeminiApiKey(key: String) {
         repository.updateGeminiApiKey(key)
+    }
+
+    // --- AI Nutrition Scanner & Menu Coach (retained across rotation) ---
+    private val visionClient by lazy { GeminiVisionClient(getApplication()) }
+
+    private val _aiScanState = MutableStateFlow(AiScanUiState())
+    val aiScanState: StateFlow<AiScanUiState> = _aiScanState.asStateFlow()
+
+    private val _menuCoachState = MutableStateFlow(MenuCoachUiState())
+    val menuCoachState: StateFlow<MenuCoachUiState> = _menuCoachState.asStateFlow()
+
+    fun openScanSheet() {
+        _aiScanState.update {
+            it.copy(showSheet = true, useHandScale = handScaleRef.value.enabled)
+        }
+    }
+
+    fun dismissScanSheet() {
+        _aiScanState.update { it.copy(showSheet = false) }
+    }
+
+    fun setScanCameraTempUri(uri: Uri?) {
+        _aiScanState.update { it.copy(cameraTempUri = uri) }
+    }
+
+    fun onScanCameraResult(success: Boolean) {
+        val uri = _aiScanState.value.cameraTempUri
+        if (success && uri != null) {
+            _aiScanState.update {
+                it.copy(
+                    selectedUris = it.selectedUris + uri,
+                    showSheet = true,
+                    cameraTempUri = null
+                )
+            }
+        }
+    }
+
+    fun onScanGalleryResult(uris: List<Uri>) {
+        if (uris.isNotEmpty()) {
+            _aiScanState.update {
+                it.copy(
+                    selectedUris = (it.selectedUris + uris).distinct(),
+                    showSheet = true
+                )
+            }
+        }
+    }
+
+    fun removeScanUri(uri: Uri) {
+        _aiScanState.update { it.copy(selectedUris = it.selectedUris.filterNot { item -> item == uri }) }
+    }
+
+    fun clearScanUris() {
+        _aiScanState.update { it.copy(selectedUris = emptyList()) }
+    }
+
+    fun updateScanUserNote(note: String) {
+        _aiScanState.update { it.copy(userNote = note) }
+    }
+
+    fun toggleScanHandScale() {
+        _aiScanState.update { it.copy(useHandScale = !it.useHandScale) }
+    }
+
+    fun dismissScannedResult() {
+        _aiScanState.update { it.copy(scannedResult = null) }
+    }
+
+    fun dismissScanError() {
+        _aiScanState.update {
+            val shouldReopen = it.selectedUris.isNotEmpty() || it.userNote.isNotBlank()
+            it.copy(errorMessage = null, showSheet = if (shouldReopen) true else it.showSheet)
+        }
+    }
+
+    fun runAiAnalysis() {
+        val state = _aiScanState.value
+        if (state.isAnalyzing || (state.selectedUris.isEmpty() && state.userNote.isBlank())) return
+        _aiScanState.update { it.copy(showSheet = false, isAnalyzing = true, errorMessage = null) }
+
+        val currentHandRef = handScaleRef.value
+        val handInstruction = if (state.useHandScale && state.selectedUris.isNotEmpty() && currentHandRef.hasAnyMeasurements()) {
+            currentHandRef.copy(enabled = true).buildPromptInstruction()
+        } else {
+            ""
+        }
+
+        viewModelScope.launch {
+            val result = visionClient.analyzeFoodImages(
+                imageUris = state.selectedUris,
+                apiKey = geminiApiKey.value,
+                systemPrompt = aiPrompt.value,
+                userNote = state.userNote,
+                handScaleInstruction = handInstruction
+            )
+            if (result.isSuccess) {
+                _aiScanState.update {
+                    it.copy(
+                        isAnalyzing = false,
+                        scannedResult = result.getOrNull(),
+                        selectedUris = emptyList(),
+                        userNote = ""
+                    )
+                }
+            } else {
+                val msg = result.exceptionOrNull()?.message ?: "Unknown error"
+                _aiScanState.update { it.copy(isAnalyzing = false, errorMessage = msg) }
+            }
+        }
+    }
+
+    fun openMenuCoachSheet() {
+        _menuCoachState.update { it.copy(showSheet = true) }
+    }
+
+    fun dismissMenuCoachSheet() {
+        _menuCoachState.update { it.copy(showSheet = false) }
+    }
+
+    fun setMenuCameraTempUri(uri: Uri?) {
+        _menuCoachState.update { it.copy(cameraTempUri = uri) }
+    }
+
+    fun onMenuCameraResult(success: Boolean) {
+        val uri = _menuCoachState.value.cameraTempUri
+        if (success && uri != null) {
+            _menuCoachState.update {
+                it.copy(
+                    selectedUris = it.selectedUris + uri,
+                    showSheet = true,
+                    cameraTempUri = null
+                )
+            }
+        }
+    }
+
+    fun onMenuGalleryResult(uris: List<Uri>) {
+        if (uris.isNotEmpty()) {
+            _menuCoachState.update {
+                it.copy(
+                    selectedUris = (it.selectedUris + uris).distinct(),
+                    showSheet = true
+                )
+            }
+        }
+    }
+
+    fun removeMenuUri(uri: Uri) {
+        _menuCoachState.update { it.copy(selectedUris = it.selectedUris.filterNot { item -> item == uri }) }
+    }
+
+    fun clearMenuUris() {
+        _menuCoachState.update { it.copy(selectedUris = emptyList()) }
+    }
+
+    fun updateMenuUserText(text: String) {
+        _menuCoachState.update { it.copy(userText = text) }
+    }
+
+    fun dismissMenuAdviceResult() {
+        _menuCoachState.update { it.copy(adviceResult = null) }
+    }
+
+    fun dismissMenuError() {
+        _menuCoachState.update {
+            val shouldReopen = it.selectedUris.isNotEmpty() || it.userText.isNotBlank()
+            it.copy(errorMessage = null, showSheet = if (shouldReopen) true else it.showSheet)
+        }
+    }
+
+    fun runMenuAdviceAnalysis() {
+        val state = _menuCoachState.value
+        if (state.isAnalyzing || (state.selectedUris.isEmpty() && state.userText.isBlank())) return
+        _menuCoachState.update { it.copy(showSheet = false, isAnalyzing = true, errorMessage = null) }
+
+        val remainingCal = (goals.value.calorieTarget - currentDayTotals.value.totalCalories).coerceAtLeast(0)
+        val remainingProt = (goals.value.proteinTargetGrams - currentDayTotals.value.totalProtein).coerceAtLeast(0f)
+
+        viewModelScope.launch {
+            val result = visionClient.askMenuAdvice(
+                imageUris = state.selectedUris,
+                menuText = state.userText,
+                userProfile = userProfile.value,
+                goals = goals.value,
+                remainingCalories = remainingCal,
+                remainingProtein = remainingProt,
+                apiKey = geminiApiKey.value
+            )
+            if (result.isSuccess) {
+                _menuCoachState.update {
+                    it.copy(
+                        isAnalyzing = false,
+                        adviceResult = result.getOrNull(),
+                        selectedUris = emptyList(),
+                        userText = ""
+                    )
+                }
+            } else {
+                val msg = result.exceptionOrNull()?.message ?: "Unknown error"
+                _menuCoachState.update { it.copy(isAnalyzing = false, errorMessage = msg) }
+            }
+        }
     }
 }

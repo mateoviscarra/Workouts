@@ -202,127 +202,30 @@ fun NutritionScreen(
     var weightLogToEdit by remember { mutableStateOf<WeightLogEntry?>(null) }
     var weightLogToDelete by remember { mutableStateOf<WeightLogEntry?>(null) }
 
-    var showScanSourceSheet by remember { mutableStateOf(false) }
-    var selectedScanUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var scanUserNote by remember { mutableStateOf("") }
-    var useHandScaleForScan by remember { mutableStateOf(handScaleRef.enabled) }
-    var isAnalyzingPhoto by remember { mutableStateOf(false) }
-    var scannedResult by remember { mutableStateOf<FoodScanResult?>(null) }
-    var scanErrorMessage by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(showScanSourceSheet, handScaleRef.enabled) {
-        if (showScanSourceSheet) {
-            useHandScaleForScan = handScaleRef.enabled
-        }
-    }
-
-    // Menu Coach States ("What to Order")
-    var showMenuCoachSheet by remember { mutableStateOf(false) }
-    var selectedMenuUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var menuUserText by remember { mutableStateOf("") }
-    var isAnalyzingMenu by remember { mutableStateOf(false) }
-    var menuAdviceResult by remember { mutableStateOf<String?>(null) }
-    var menuErrorMessage by remember { mutableStateOf<String?>(null) }
-
-    // Camera temp file URIs
-    var cameraTempUri by remember { mutableStateOf<Uri?>(null) }
-    var menuCameraTempUri by remember { mutableStateOf<Uri?>(null) }
+    val aiScanState by viewModel.aiScanState.collectAsStateWithLifecycle()
+    val menuCoachState by viewModel.menuCoachState.collectAsStateWithLifecycle()
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success && cameraTempUri != null) {
-            val uri = cameraTempUri!!
-            selectedScanUris = selectedScanUris + uri
-            showScanSourceSheet = true
-        }
+        viewModel.onScanCameraResult(success)
     }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
-        if (uris.isNotEmpty()) {
-            selectedScanUris = (selectedScanUris + uris).distinct()
-            showScanSourceSheet = true
-        }
+        viewModel.onScanGalleryResult(uris)
     }
 
     val menuCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success && menuCameraTempUri != null) {
-            val uri = menuCameraTempUri!!
-            selectedMenuUris = selectedMenuUris + uri
-            showMenuCoachSheet = true
-        }
+        viewModel.onMenuCameraResult(success)
     }
 
     val menuGalleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
-        if (uris.isNotEmpty()) {
-            selectedMenuUris = (selectedMenuUris + uris).distinct()
-            showMenuCoachSheet = true
-        }
-    }
-
-    fun runAiAnalysis() {
-        if (selectedScanUris.isEmpty() && scanUserNote.isBlank()) return
-        showScanSourceSheet = false
-        isAnalyzingPhoto = true
-        val handInstruction = if (useHandScaleForScan && selectedScanUris.isNotEmpty() && handScaleRef.hasAnyMeasurements()) {
-            handScaleRef.copy(enabled = true).buildPromptInstruction()
-        } else {
-            ""
-        }
-        scope.launch {
-            val result = visionClient.analyzeFoodImages(
-                imageUris = selectedScanUris,
-                apiKey = apiKey,
-                systemPrompt = aiPrompt,
-                userNote = scanUserNote,
-                handScaleInstruction = handInstruction
-            )
-            isAnalyzingPhoto = false
-            if (result.isSuccess) {
-                scannedResult = result.getOrNull()
-                selectedScanUris = emptyList()
-                scanUserNote = ""
-            } else {
-                val msg = result.exceptionOrNull()?.message ?: "Unknown error"
-                scanErrorMessage = msg
-                Toast.makeText(context, "Scan error: $msg", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    fun runMenuAdviceAnalysis() {
-        if (selectedMenuUris.isEmpty() && menuUserText.isBlank()) return
-        showMenuCoachSheet = false
-        isAnalyzingMenu = true
-        val remainingCal = (goals.calorieTarget - dayTotals.totalCalories).coerceAtLeast(0)
-        val remainingProt = (goals.proteinTargetGrams - dayTotals.totalProtein).coerceAtLeast(0f)
-
-        scope.launch {
-            val result = visionClient.askMenuAdvice(
-                imageUris = selectedMenuUris,
-                menuText = menuUserText,
-                userProfile = userProfile,
-                goals = goals,
-                remainingCalories = remainingCal,
-                remainingProtein = remainingProt,
-                apiKey = apiKey
-            )
-            isAnalyzingMenu = false
-            if (result.isSuccess) {
-                menuAdviceResult = result.getOrNull()
-                selectedMenuUris = emptyList()
-                menuUserText = ""
-            } else {
-                val msg = result.exceptionOrNull()?.message ?: "Unknown error"
-                menuErrorMessage = msg
-                Toast.makeText(context, "Menu Coach error: $msg", Toast.LENGTH_LONG).show()
-            }
-        }
+        viewModel.onMenuGalleryResult(uris)
     }
 
     fun startCameraCapture() {
         val cacheDir = File(context.cacheDir, "camera").apply { mkdirs() }
         val tempFile = File(cacheDir, "capture_${System.currentTimeMillis()}.jpg")
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
-        cameraTempUri = uri
+        viewModel.setScanCameraTempUri(uri)
         cameraLauncher.launch(uri)
     }
 
@@ -330,7 +233,7 @@ fun NutritionScreen(
         val cacheDir = File(context.cacheDir, "camera_menu").apply { mkdirs() }
         val tempFile = File(cacheDir, "menu_${System.currentTimeMillis()}.jpg")
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
-        menuCameraTempUri = uri
+        viewModel.setMenuCameraTempUri(uri)
         menuCameraLauncher.launch(uri)
     }
 
@@ -408,7 +311,7 @@ fun NutritionScreen(
                                 Toast.makeText(context, "Please set your Gemini API key in Settings first", Toast.LENGTH_LONG).show()
                                 onNavigateToSettings()
                             } else {
-                                showScanSourceSheet = true
+                                viewModel.openScanSheet()
                             }
                         },
                         onMenuCoachClick = {
@@ -416,7 +319,7 @@ fun NutritionScreen(
                                 Toast.makeText(context, "Please set your Gemini API key in Settings first", Toast.LENGTH_LONG).show()
                                 onNavigateToSettings()
                             } else {
-                                showMenuCoachSheet = true
+                                viewModel.openMenuCoachSheet()
                             }
                         },
                         onQuickAddClick = {
@@ -748,9 +651,9 @@ fun NutritionScreen(
     }
 
     // --- PHOTO / TEXT SCAN SOURCE SHEET ---
-    if (showScanSourceSheet) {
+    if (aiScanState.showSheet) {
         ModalBottomSheet(
-            onDismissRequest = { showScanSourceSheet = false },
+            onDismissRequest = { viewModel.dismissScanSheet() },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Column(
@@ -786,7 +689,7 @@ fun NutritionScreen(
                     ) {
                         Icon(Icons.Default.PhotoCamera, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (selectedScanUris.isEmpty()) "Camera" else "Add Camera")
+                        Text(if (aiScanState.selectedUris.isEmpty()) "Camera" else "Add Camera")
                     }
 
                     OutlinedButton(
@@ -799,12 +702,12 @@ fun NutritionScreen(
                     ) {
                         Icon(Icons.Default.Image, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (selectedScanUris.isEmpty()) "Gallery" else "Add Gallery")
+                        Text(if (aiScanState.selectedUris.isEmpty()) "Gallery" else "Add Gallery")
                     }
                 }
 
                 // Selected Photos Thumbnail Strip
-                if (selectedScanUris.isNotEmpty()) {
+                if (aiScanState.selectedUris.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -812,13 +715,13 @@ fun NutritionScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Selected Photos (${selectedScanUris.size})",
+                                text = "Selected Photos (${aiScanState.selectedUris.size})",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
                             )
                             TextButton(
-                                onClick = { selectedScanUris = emptyList() },
+                                onClick = { viewModel.clearScanUris() },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                             ) {
                                 Text("Clear all", style = MaterialTheme.typography.labelMedium)
@@ -829,11 +732,11 @@ fun NutritionScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(vertical = 2.dp)
                         ) {
-                            items(selectedScanUris, key = { it.toString() }) { uri ->
+                            items(aiScanState.selectedUris, key = { it.toString() }) { uri ->
                                 ScanPhotoThumbnail(
                                     uri = uri,
                                     onRemove = {
-                                        selectedScanUris = selectedScanUris.filterNot { it == uri }
+                                        viewModel.removeScanUri(uri)
                                     }
                                 )
                             }
@@ -846,9 +749,9 @@ fun NutritionScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 FilterChip(
-                                    selected = useHandScaleForScan,
-                                    onClick = { useHandScaleForScan = !useHandScaleForScan },
-                                    leadingIcon = if (useHandScaleForScan) {
+                                    selected = aiScanState.useHandScale,
+                                    onClick = { viewModel.toggleScanHandScale() },
+                                    leadingIcon = if (aiScanState.useHandScale) {
                                         {
                                             Icon(
                                                 imageVector = Icons.Default.Check,
@@ -867,7 +770,7 @@ fun NutritionScreen(
                                     }
                                 )
                                 Text(
-                                    text = if (useHandScaleForScan) "Active if hand in frame" else "Ignored",
+                                    text = if (aiScanState.useHandScale) "Active if hand in frame" else "Ignored",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -877,8 +780,8 @@ fun NutritionScreen(
                 }
 
                 OutlinedTextField(
-                    value = scanUserNote,
-                    onValueChange = { scanUserNote = it },
+                    value = aiScanState.userNote,
+                    onValueChange = { viewModel.updateScanUserNote(it) },
                     label = { Text("Food description or notes") },
                     placeholder = { Text("e.g. 2 fried eggs, 2 slices whole wheat toast, or extra details for photos...") },
                     modifier = Modifier.fillMaxWidth(),
@@ -887,8 +790,8 @@ fun NutritionScreen(
                 )
 
                 Button(
-                    onClick = { runAiAnalysis() },
-                    enabled = selectedScanUris.isNotEmpty() || scanUserNote.isNotBlank(),
+                    onClick = { viewModel.runAiAnalysis() },
+                    enabled = aiScanState.selectedUris.isNotEmpty() || aiScanState.userNote.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp),
@@ -897,9 +800,9 @@ fun NutritionScreen(
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     val btnText = when {
-                        selectedScanUris.isEmpty() && scanUserNote.isNotBlank() -> "Estimate from Description"
-                        selectedScanUris.size == 1 -> "Analyze 1 Photo with AI"
-                        selectedScanUris.size > 1 -> "Analyze ${selectedScanUris.size} Photos with AI"
+                        aiScanState.selectedUris.isEmpty() && aiScanState.userNote.isNotBlank() -> "Estimate from Description"
+                        aiScanState.selectedUris.size == 1 -> "Analyze 1 Photo with AI"
+                        aiScanState.selectedUris.size > 1 -> "Analyze ${aiScanState.selectedUris.size} Photos with AI"
                         else -> "Add Photos or Describe Food"
                     }
                     Text(btnText, fontWeight = FontWeight.Bold)
@@ -911,7 +814,7 @@ fun NutritionScreen(
     }
 
     // --- SCAN PROGRESS DIALOG ---
-    if (isAnalyzingPhoto) {
+    if (aiScanState.isAnalyzing) {
         AlertDialog(
             onDismissRequest = {},
             confirmButton = {},
@@ -930,10 +833,10 @@ fun NutritionScreen(
     }
 
     // --- SCAN RESULT REVIEW SHEET ---
-    scannedResult?.let { result ->
+    aiScanState.scannedResult?.let { result ->
         ScanResultReviewDialog(
             result = result,
-            onDismiss = { scannedResult = null },
+            onDismiss = { viewModel.dismissScannedResult() },
             onConfirm = { name, cals, prot, carbs, fat, slot, note, portionMult, saveAsStaple ->
                 viewModel.addManualEntry(
                     name = name,
@@ -963,28 +866,20 @@ fun NutritionScreen(
                     )
                 }
 
-                scannedResult = null
+                viewModel.dismissScannedResult()
                 Toast.makeText(context, "Logged $name!", Toast.LENGTH_SHORT).show()
             }
         )
     }
 
     // --- SCAN ERROR DIALOG ---
-    scanErrorMessage?.let { errorMsg ->
+    aiScanState.errorMessage?.let { errorMsg ->
         AlertDialog(
-            onDismissRequest = {
-                scanErrorMessage = null
-                if (selectedScanUris.isNotEmpty() || scanUserNote.isNotBlank()) showScanSourceSheet = true
-            },
+            onDismissRequest = { viewModel.dismissScanError() },
             title = { Text("AI Scan Notice") },
             text = { Text(errorMsg) },
             confirmButton = {
-                Button(
-                    onClick = {
-                        scanErrorMessage = null
-                        if (selectedScanUris.isNotEmpty() || scanUserNote.isNotBlank()) showScanSourceSheet = true
-                    }
-                ) {
+                Button(onClick = { viewModel.dismissScanError() }) {
                     Text("OK")
                 }
             }
@@ -992,12 +887,12 @@ fun NutritionScreen(
     }
 
     // --- MENU COACH BOTTOM SHEET ("WHAT SHOULD I ORDER?") ---
-    if (showMenuCoachSheet) {
+    if (menuCoachState.showSheet) {
         val remainingCal = (goals.calorieTarget - dayTotals.totalCalories).coerceAtLeast(0)
         val remainingProt = (goals.proteinTargetGrams - dayTotals.totalProtein).coerceAtLeast(0f).toInt()
 
         ModalBottomSheet(
-            onDismissRequest = { showMenuCoachSheet = false },
+            onDismissRequest = { viewModel.dismissMenuCoachSheet() },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
             Column(
@@ -1030,7 +925,7 @@ fun NutritionScreen(
                         )
                     }
                     IconButton(
-                        onClick = { showMenuCoachSheet = false },
+                        onClick = { viewModel.dismissMenuCoachSheet() },
                         modifier = Modifier.size(24.dp)
                     ) {
                         Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
@@ -1081,7 +976,7 @@ fun NutritionScreen(
                     ) {
                         Icon(Icons.Default.PhotoCamera, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (selectedMenuUris.isEmpty()) "Menu Photo" else "Add Photo")
+                        Text(if (menuCoachState.selectedUris.isEmpty()) "Menu Photo" else "Add Photo")
                     }
 
                     OutlinedButton(
@@ -1094,12 +989,12 @@ fun NutritionScreen(
                     ) {
                         Icon(Icons.Default.Image, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (selectedMenuUris.isEmpty()) "Gallery" else "Add Gallery")
+                        Text(if (menuCoachState.selectedUris.isEmpty()) "Gallery" else "Add Gallery")
                     }
                 }
 
                 // Selected Photos Thumbnail Strip
-                if (selectedMenuUris.isNotEmpty()) {
+                if (menuCoachState.selectedUris.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1107,13 +1002,13 @@ fun NutritionScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Menu Photos (${selectedMenuUris.size})",
+                                text = "Menu Photos (${menuCoachState.selectedUris.size})",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
                             )
                             TextButton(
-                                onClick = { selectedMenuUris = emptyList() },
+                                onClick = { viewModel.clearMenuUris() },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                             ) {
                                 Text("Clear all", style = MaterialTheme.typography.labelMedium)
@@ -1124,11 +1019,11 @@ fun NutritionScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(vertical = 2.dp)
                         ) {
-                            items(selectedMenuUris, key = { it.toString() }) { uri ->
+                            items(menuCoachState.selectedUris, key = { it.toString() }) { uri ->
                                 ScanPhotoThumbnail(
                                     uri = uri,
                                     onRemove = {
-                                        selectedMenuUris = selectedMenuUris.filterNot { it == uri }
+                                        viewModel.removeMenuUri(uri)
                                     }
                                 )
                             }
@@ -1137,8 +1032,8 @@ fun NutritionScreen(
                 }
 
                 OutlinedTextField(
-                    value = menuUserText,
-                    onValueChange = { menuUserText = it },
+                    value = menuCoachState.userText,
+                    onValueChange = { viewModel.updateMenuUserText(it) },
                     label = { Text("Menu options / cravings / questions") },
                     placeholder = { Text("e.g. Steakhouse with ribeye, grilled trout with veggies, or chicken burger. Want high protein without too many fats.") },
                     modifier = Modifier.fillMaxWidth(),
@@ -1147,8 +1042,8 @@ fun NutritionScreen(
                 )
 
                 Button(
-                    onClick = { runMenuAdviceAnalysis() },
-                    enabled = selectedMenuUris.isNotEmpty() || menuUserText.isNotBlank(),
+                    onClick = { viewModel.runMenuAdviceAnalysis() },
+                    enabled = menuCoachState.selectedUris.isNotEmpty() || menuCoachState.userText.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp),
@@ -1157,9 +1052,9 @@ fun NutritionScreen(
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     val btnText = when {
-                        selectedMenuUris.isEmpty() && menuUserText.isNotBlank() -> "Ask What to Order"
-                        selectedMenuUris.size == 1 -> "Analyze Menu Photo with AI"
-                        selectedMenuUris.size > 1 -> "Analyze ${selectedMenuUris.size} Menu Photos"
+                        menuCoachState.selectedUris.isEmpty() && menuCoachState.userText.isNotBlank() -> "Ask What to Order"
+                        menuCoachState.selectedUris.size == 1 -> "Analyze Menu Photo with AI"
+                        menuCoachState.selectedUris.size > 1 -> "Analyze ${menuCoachState.selectedUris.size} Menu Photos"
                         else -> "Add Photos or Menu Items"
                     }
                     Text(btnText, fontWeight = FontWeight.Bold)
@@ -1171,7 +1066,7 @@ fun NutritionScreen(
     }
 
     // --- MENU ANALYSIS PROGRESS DIALOG ---
-    if (isAnalyzingMenu) {
+    if (menuCoachState.isAnalyzing) {
         AlertDialog(
             onDismissRequest = {},
             confirmButton = {},
@@ -1190,29 +1085,21 @@ fun NutritionScreen(
     }
 
     // --- MENU ADVICE RESULT DIALOG ---
-    menuAdviceResult?.let { advice ->
+    menuCoachState.adviceResult?.let { advice ->
         MenuAdviceResultDialog(
             advice = advice,
-            onDismiss = { menuAdviceResult = null }
+            onDismiss = { viewModel.dismissMenuAdviceResult() }
         )
     }
 
     // --- MENU ERROR DIALOG ---
-    menuErrorMessage?.let { errorMsg ->
+    menuCoachState.errorMessage?.let { errorMsg ->
         AlertDialog(
-            onDismissRequest = {
-                menuErrorMessage = null
-                if (selectedMenuUris.isNotEmpty() || menuUserText.isNotBlank()) showMenuCoachSheet = true
-            },
+            onDismissRequest = { viewModel.dismissMenuError() },
             title = { Text("Menu Coach Notice") },
             text = { Text(errorMsg) },
             confirmButton = {
-                Button(
-                    onClick = {
-                        menuErrorMessage = null
-                        if (selectedMenuUris.isNotEmpty() || menuUserText.isNotBlank()) showMenuCoachSheet = true
-                    }
-                ) {
+                Button(onClick = { viewModel.dismissMenuError() }) {
                     Text("OK")
                 }
             }
