@@ -6,6 +6,7 @@ import android.util.Log
 import com.mateoviscarra.doitall.BuildConfig
 import com.mateoviscarra.doitall.data.persist.WeightUnit
 import com.mateoviscarra.doitall.notifications.PillReminderScheduler
+import com.mateoviscarra.doitall.widget.HealthWidgetProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -819,19 +820,20 @@ class NutritionRepository(
     }
 
     private fun saveWeightLogsToDisk(list: List<WeightLogEntry>) {
-        scope.launch {
-            val arr = JSONArray()
-            list.forEach { w ->
-                val obj = JSONObject().apply {
-                    put("id", w.id)
-                    put("dateIso", w.dateIso)
-                    put("weight", w.weight.toDouble())
-                    put("unit", w.unit.name)
-                    put("note", w.note)
-                }
-                arr.put(obj)
+        val arr = JSONArray()
+        list.forEach { w ->
+            val obj = JSONObject().apply {
+                put("id", w.id)
+                put("dateIso", w.dateIso)
+                put("weight", w.weight.toDouble())
+                put("unit", w.unit.name)
+                put("note", w.note)
             }
-            prefs.edit().putString(KEY_WEIGHT_LOGS, arr.toString()).apply()
+            arr.put(obj)
+        }
+        prefs.edit().putString(KEY_WEIGHT_LOGS, arr.toString()).apply()
+        HealthWidgetProvider.refreshAll(context)
+        scope.launch {
             DriveSyncManager.scheduleAutoSync(context, "Weight log updated")
         }
     }
@@ -930,11 +932,13 @@ class NutritionRepository(
 
     private fun saveSupplementsToDisk(list: List<SupplementPill>) {
         prefs.edit().putString(KEY_SUPPLEMENTS, supplementsToJsonArray(list).toString()).apply()
+        HealthWidgetProvider.refreshAll(context)
         DriveSyncManager.scheduleAutoSync(context, "Supplements updated")
     }
 
     private fun savePillLogsToDisk(list: List<PillLogEntry>) {
         prefs.edit().putString(KEY_PILL_LOGS, pillLogsToJsonArray(list).toString()).apply()
+        HealthWidgetProvider.refreshAll(context)
         DriveSyncManager.scheduleAutoSync(context, "Pill log updated")
     }
 

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Workouts</string>
+    <string name="widget_name">Daily Check-in</string>
+    <string name="widget_description">Quickly log your daily weight and check off scheduled pills &amp; supplements.</string>
 </resources>

@@ -1,0 +1,15 @@
+<resources>
+    <color name="widget_bg">#141218</color>
+    <color name="widget_card_bg">#211F26</color>
+    <color name="widget_pill_row_bg">#2B2930</color>
+    <color name="widget_primary">#D0BCFF</color>
+    <color name="widget_on_primary">#381E72</color>
+    <color name="widget_primary_container">#4F378B</color>
+    <color name="widget_on_primary_container">#EADDFF</color>
+    <color name="widget_text_primary">#E6E0E9</color>
+    <color name="widget_text_secondary">#CAC4D0</color>
+    <color name="widget_emerald">#34D399</color>
+    <color name="widget_emerald_bg">#064E3B</color>
+    <color name="widget_on_emerald_bg">#A7F3D0</color>
+    <color name="widget_divider">#36343B</color>
+</resources>
